@@ -167,7 +167,7 @@ contract PrivateTokenTest is Test {
         privateToken.deposit(DEPOSIT_AMOUNT);
         vm.stopPrank();
 
-        bytes memory proof = hex"same-proof";
+        bytes memory proof = hex"ccdd";
 
         vm.startPrank(tee);
         privateToken.processWithdrawal(user1, 100, proof);
@@ -185,8 +185,8 @@ contract PrivateTokenTest is Test {
         users[1] = user2;
 
         bytes[] memory balances = new bytes[](2);
-        balances[0] = hex"encrypted-balance-1";
-        balances[1] = hex"encrypted-balance-2";
+        balances[0] = hex"1122334455";
+        balances[1] = hex"6677889900";
 
         bytes32 stateRoot = keccak256("state-root");
 
@@ -238,7 +238,7 @@ contract PrivateTokenTest is Test {
         users[0] = user1;
 
         bytes[] memory balances = new bytes[](1);
-        balances[0] = hex"my-encrypted-balance";
+        balances[0] = hex"aabbccddeeff";
 
         vm.prank(tee);
         privateToken.batchUpdateBalances(users, balances, bytes32(0));
@@ -256,7 +256,7 @@ contract PrivateTokenTest is Test {
         privateToken.deposit(DEPOSIT_AMOUNT);
         vm.stopPrank();
 
-        bytes memory proof = hex"unique-proof";
+        bytes memory proof = hex"eeff0011";
         bytes32 withdrawalId = keccak256(abi.encodePacked(user1, uint256(100), proof));
 
         assertFalse(privateToken.isWithdrawalProcessed(withdrawalId));
