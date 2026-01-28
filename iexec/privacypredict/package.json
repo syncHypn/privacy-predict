@@ -1,0 +1,10 @@
+{
+  "name": "iexec-hello-world-iapp",
+  "version": "0.0.1",
+  "description": "",
+  "main": "src/app.js",
+  "type": "module",
+  "dependencies": {
+    "figlet": "^1.8.1"
+  }
+}

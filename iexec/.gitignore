@@ -1,0 +1,11 @@
+# iExec secrets
+.iexec-secrets/
+
+# Deployed state
+deployed.json
+
+# Wallet files (should use env vars)
+wallet.json
+
+# Order files
+orders/

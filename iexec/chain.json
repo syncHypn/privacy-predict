@@ -1,0 +1,27 @@
+{
+  "default": "arbitrum-sepolia",
+  "chains": {
+    "bellecour": {
+      "id": "134",
+      "host": "https://bellecour.iex.ec",
+      "hub": "0x3eca1B216A7DF1C7689aEb259fCB83ADAc8A3e3c",
+      "sms": "https://sms.scone-prod.v8-bellecour.iex.ec",
+      "resultProxy": "https://result.v8-bellecour.iex.ec",
+      "ipfsGateway": "https://ipfs-gateway.v8-bellecour.iex.ec",
+      "iexecGateway": "https://api.market.v8-bellecour.iex.ec",
+      "native": false,
+      "useGas": true
+    },
+    "arbitrum-sepolia": {
+      "id": "421614",
+      "host": "https://sepolia-rollup.arbitrum.io/rpc",
+      "native": true,
+      "useGas": true
+    }
+  },
+  "providers": {
+    "alchemy": "",
+    "infura": "",
+    "etherscan": ""
+  }
+}
