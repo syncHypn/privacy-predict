@@ -1,10 +1,12 @@
-# iPred: Private Prediction Market Specification
+# iPred: Confidential Prediction Market (cPM) Specification
 
 > Trade prediction markets with the transparency of DeFi and the privacy of CeFi
 
 ## Executive Summary
 
-iPred is a privacy-preserving prediction market protocol leveraging iExec TEE (Trusted Execution Environment) for confidential order matching and encrypted token balances. Users can bet on categorical outcomes (sports, esports, events) without revealing their positions, bet sizes, or trading strategies.
+iPred est un protocole de marche predictif confidentiel (Confidential Prediction Market - cPM) base sur des **Confidential Tokens** utilisant le chiffrement NaCl (TweetNaCl). Le protocole exploite iExec TEE (Trusted Execution Environment) pour gerer les balances chiffrees et executer les transferts de maniere confidentielle.
+
+Les utilisateurs deposent des USDC qui sont convertis en **cUSDC** (Confidential USDC). Pour chaque marche predictif, deux tokens confidentiels sont crees : **cYES** et **cNO**. Toutes les balances sont chiffrees on-chain, et seule l'iApp TEE peut dechiffrer, calculer et re-chiffrer les montants lors des transferts.
 
 ---
 
@@ -12,15 +14,16 @@ iPred is a privacy-preserving prediction market protocol leveraging iExec TEE (T
 
 1. [Overview](#overview)
 2. [Architecture](#architecture)
-3. [Core Components](#core-components)
-4. [Privacy Model](#privacy-model)
-5. [Market Mechanics](#market-mechanics)
-6. [Order Book Design](#order-book-design)
-7. [Resolution & Settlement](#resolution--settlement)
-8. [Security Model](#security-model)
-9. [Technical Stack](#technical-stack)
-10. [Implementation Roadmap](#implementation-roadmap)
-11. [API Specification](#api-specification)
+3. [Confidential Token Model](#confidential-token-model)
+4. [Core Components](#core-components)
+5. [Privacy Model](#privacy-model)
+6. [Market Mechanics](#market-mechanics)
+7. [Price Discovery Challenge](#price-discovery-challenge)
+8. [Resolution & Settlement](#resolution--settlement)
+9. [Security Model](#security-model)
+10. [Technical Stack](#technical-stack)
+11. [Implementation Roadmap](#implementation-roadmap)
+12. [API Specification](#api-specification)
 
 ---
 
@@ -36,21 +39,21 @@ Current prediction markets (Polymarket, Augur) expose:
 
 ### Solution
 
-iPred processes all bets inside a TEE where:
-- Orders are encrypted until matched
-- Positions remain private to each user
-- Only aggregate market data (spread, last price) is visible
-- Settlement happens privately with encrypted token transfers
+iPred utilise des **Confidential ERC20** avec des montants chiffres via NaCl :
+- Les balances sont chiffrees on-chain (personne ne voit les montants)
+- Chaque transfert declenche une iApp TEE qui dechiffre, calcule et re-chiffre
+- La cle privee de chiffrement (sealed key) reste dans le TEE, jamais exposee
+- Le settlement se fait de maniere confidentielle
 
 ### Key Features
 
 | Feature | Description |
 |---------|-------------|
-| Private Betting | Bet amounts and positions hidden from all parties |
-| Categorical Markets | Support up to 10 outcomes per market |
-| Order Book Trading | Limit orders matched in TEE for best execution |
+| Confidential Tokens | cUSDC, cYES, cNO avec balances chiffrees via NaCl (XSalsa20-Poly1305) |
+| Binary Markets (MVP) | 2 outcomes uniquement : YES / NO |
+| TEE-Gated Transfers | Chaque transfert execute une iApp pour update les balances |
 | Private Settlement | Winners receive funds without revealing positions |
-| MEV Resistant | Encrypted order flow prevents front-running |
+| MEV Resistant | Encrypted balances prevent front-running |
 
 ---
 
@@ -64,234 +67,376 @@ iPred processes all bets inside a TEE where:
 │                    (React Frontend / CLI)                            │
 └─────────────────────────────────────────────────────────────────────┘
                                    │
-                                   │ Encrypted Orders
+                                   │ USDC Deposit / Withdraw
                                    ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                      Arbitrum L2 Contracts                           │
+│                      Bellecour L2 Contracts                          │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐  │
-│  │  MarketFactory  │  │  PrivateToken   │  │    OrderQueue       │  │
-│  │                 │  │   (Nocturne)    │  │                     │  │
-│  │  - Create       │  │                 │  │  - Submit orders    │  │
-│  │  - Resolve      │  │  - Encrypted    │  │  - Emit events      │  │
-│  │  - Whitelist    │  │    balances     │  │  - Batch commits    │  │
+│  │  MarketFactory  │  │ ConfidentialERC20│  │    cYES / cNO      │  │
+│  │                 │  │     (cUSDC)      │  │   (per market)     │  │
+│  │  - Create       │  │                  │  │                    │  │
+│  │  - Resolve      │  │  - Encrypted     │  │  - Encrypted       │  │
+│  │  - Whitelist    │  │    balances (EC) │  │    balances (EC)   │  │
 │  └─────────────────┘  └─────────────────┘  └─────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────┘
                                    │
-                                   │ Events / Callbacks
+                                   │ Transfer Request
                                    ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                    iExec TEE (Single Enclave)                        │
+│                    iExec iApp (TEE Enclave)                          │
 │  ┌─────────────────────────────────────────────────────────────┐    │
-│  │                    Matching Engine                           │    │
+│  │                 Confidential Transfer Engine                 │    │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐   │    │
-│  │  │ Order Books  │  │   Position   │  │   Settlement     │   │    │
-│  │  │ (per outcome)│  │   Manager    │  │   Calculator     │   │    │
+│  │  │   Decrypt    │  │   Compute    │  │    Re-encrypt    │   │    │
+│  │  │   Balances   │  │   Transfer   │  │    New Balances  │   │    │
 │  │  └──────────────┘  └──────────────┘  └──────────────────┘   │    │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐   │    │
-│  │  │   MPT State  │  │  Encryption  │  │  Oracle Client   │   │    │
-│  │  │   Manager    │  │   Service    │  │                  │   │    │
+│  │  │  Private Key │  │   Validate   │  │  Update On-Chain │   │    │
+│  │  │  (sealed)    │  │   Amounts    │  │                  │   │    │
 │  │  └──────────────┘  └──────────────┘  └──────────────────┘   │    │
 │  └─────────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────────┘
-                                   │
-                                   │ Encrypted State
-                                   ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                      State Storage (IPFS)                            │
-│                   Encrypted MPT root + deltas                        │
-└─────────────────────────────────────────────────────────────────────┘
 ```
 
-### Data Flow
+### Confidential Token Flow
 
 ```
-1. User encrypts order with TEE public key
-2. User submits encrypted order to OrderQueue contract
-3. Contract emits event, iExec picks up order
-4. TEE decrypts, validates, matches order
-5. TEE updates encrypted state (positions, balances)
-6. TEE calls back to contracts with:
-   - New encrypted balances (PrivateToken)
-   - Execution confirmations
-   - Updated market state (best bid/ask only)
-7. User decrypts their position update with their key
+┌──────────────────────────────────────────────────────────────────────┐
+│                    Confidential Prediction Market (cPM)               │
+│                                                                       │
+│                              ┌─────────────────┐                      │
+│                              │      PR1        │                      │
+│                              │ ┌─────┬───────┐ │   CLOSURE PR1       │
+│                              │ │cYES │ cNO   │ │ ──────────────────┐ │
+│                              │ │ PR1 │ PR1   │ │      yield        │ │
+│                              │ └─────┴───────┘ │                   │ │
+│                              └────────▲────────┘                   │ │
+│                                       │                            │ │
+│    USDC        WRAPPED               │                            ▼ │
+│   ────────────────────►  cUSDC ──────┴──────────────────────►  cUSDC │
+│                            │                                    (2) │
+│                            │         ┌─────────────────┐          │ │
+│                            │         │      PR2        │          │ │
+│                            │         │ ┌─────┬───────┐ │  SELL    │ │
+│                            └────────►│ │cYES │ cNO   │ │──────────┘ │
+│                                      │ │ PR2 │ PR2   │ │ TRANSFER   │
+│                                      │ └─────┴───────┘ │            │
+│                                      └─────────────────┘            │
+│                                                    │                │
+│                                                    ▼                │
+│                                                 cUSDC ──────────► User
+│                                                  (3)                │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### Data Flow (Confidential Transfer)
+
+```
+1. User initie un transfert (ex: acheter cYES avec cUSDC)
+2. Smart contract appelle l'iApp iExec
+3. iApp dans le TEE:
+   a. Dechiffre les balances source et destination avec la cle privee scellee
+   b. Valide que le sender a suffisamment de fonds
+   c. Calcule les nouvelles balances
+   d. Re-chiffre les nouvelles balances avec la cle publique
+4. iApp ecrit les nouvelles balances chiffrees on-chain
+5. User peut verifier sa balance en dechiffrant localement (avec sa viewing key)
+```
+
+---
+
+## Confidential Token Model
+
+### Vue d'ensemble
+
+Le systeme repose sur des **Confidential ERC20** ou les montants sont chiffres via **NaCl (TweetNaCl)**.
+
+> **Choix MVP**: Nous utilisons NaCl plutot que des Pedersen commitments (EC-based) car:
+> - **Confidentialite**: Les balances sont cachees on-chain
+> - **Integrite**: Le TEE valide toutes les operations
+> - **Simplicite**: NaCl est battle-tested et simple a implementer
+>
+> Pour une version production, on pourrait migrer vers des Pedersen commitments avec range proofs (Bulletproofs) pour permettre une verification sans TEE.
+
+### Tokens du systeme
+
+| Token | Description | Usage |
+|-------|-------------|-------|
+| **USDC** | Stablecoin standard | Depot initial par l'utilisateur |
+| **cUSDC** | Confidential USDC | Collateral pour acheter cYES/cNO |
+| **cYES** | Confidential YES token | Position "l'evenement se produit" |
+| **cNO** | Confidential NO token | Position "l'evenement ne se produit pas" |
+
+### Chiffrement NaCl (MVP)
+
+Le MVP utilise **TweetNaCl** avec deux schemas de chiffrement:
+
+| Usage | Algorithme | Type |
+|-------|------------|------|
+| User <-> TEE (ordres) | X25519 + XSalsa20-Poly1305 | Asymetrique (box) |
+| Stockage balances | XSalsa20-Poly1305 | Symetrique (secretbox) |
+
+```typescript
+// Structure d'une balance chiffree (MVP)
+interface EncryptedBalance {
+  // Commitment structure pour identification on-chain
+  commitment: {
+    x: Hex;  // Hash-based pseudo-commitment (32 bytes)
+    y: Hex;  // Hash-based pseudo-commitment (32 bytes)
+  };
+  // Payload chiffre contenant value + randomness
+  // Chiffre avec la sealed key du TEE (XSalsa20-Poly1305)
+  encryptedRandomness: Hex;
+}
+
+// Seul le TEE peut dechiffrer (possede la sealed key)
+// Fresh randomness a chaque re-encryption pour eviter les pattern attacks
+```
+
+### Cycle de vie des tokens
+
+```
+1. DEPOSIT (USDC -> cUSDC)
+   User: USDC ─────────────────────────────> Contract
+   Contract: mint cUSDC (encrypted balance) to User
+
+2. BUY cYES (cUSDC -> cYES)
+   User envoie cUSDC au Market
+   iApp TEE: decrypt, compute, re-encrypt
+   User recoit cYES (encrypted balance)
+
+3. SELL cYES (cYES -> cUSDC)
+   User envoie cYES au Market
+   iApp TEE: decrypt, compute, re-encrypt
+   User recoit cUSDC (encrypted balance)
+
+4. SETTLEMENT (Resolution)
+   Si YES gagne: cYES -> cUSDC (1:1)
+   Si NO gagne: cNO -> cUSDC (1:1)
+   Les tokens perdants valent 0
+
+5. WITHDRAW (cUSDC -> USDC)
+   User burn cUSDC
+   Contract: release USDC to User
+```
+
+### iApp Transfer Flow
+
+Chaque transfert de token confidentiel declenche l'execution d'une iApp dans le TEE :
+
+```typescript
+// Reference: https://github.com/nocturne-protocol/iapp_iexec
+
+interface TransferRequest {
+  from: address;
+  to: address;
+  token: address;        // cUSDC, cYES, ou cNO
+  encryptedAmount: bytes; // Montant chiffre (optionnel, peut etre "tout")
+}
+
+// Dans le TEE (iApp)
+async function executeConfidentialTransfer(request: TransferRequest) {
+  // 1. Recuperer la cle privee scellee dans l'enclave
+  const privateKey = await getSealedPrivateKey();
+
+  // 2. Dechiffrer les balances actuelles
+  const fromBalance = decrypt(getEncryptedBalance(request.from), privateKey);
+  const toBalance = decrypt(getEncryptedBalance(request.to), privateKey);
+  const amount = decrypt(request.encryptedAmount, privateKey);
+
+  // 3. Valider le transfert
+  if (fromBalance < amount) {
+    throw new Error('INSUFFICIENT_BALANCE');
+  }
+
+  // 4. Calculer les nouvelles balances
+  const newFromBalance = fromBalance - amount;
+  const newToBalance = toBalance + amount;
+
+  // 5. Re-chiffrer avec la cle publique
+  const newFromEncrypted = encrypt(newFromBalance, publicKey);
+  const newToEncrypted = encrypt(newToBalance, publicKey);
+
+  // 6. Mettre a jour on-chain
+  await updateBalances(request.from, newFromEncrypted, request.to, newToEncrypted);
+}
 ```
 
 ---
 
 ## Core Components
 
-### 1. Smart Contracts (Arbitrum)
+### 1. Smart Contracts (Bellecour)
 
 #### MarketFactory.sol
 ```solidity
 struct Market {
     bytes32 marketId;
-    string question;           // "Who will win the match?"
-    string[] outcomes;         // ["Team A", "Team B", "Draw"]
+    string question;           // "Will BTC reach $100k by Dec 2024?"
     uint256 resolutionTime;    // When market resolves
-    uint8 winningOutcome;      // Set after resolution (255 = unresolved)
     bool resolved;
+    bool outcome;              // true = YES wins, false = NO wins
     address creator;
+    address cYesToken;         // Confidential YES token address
+    address cNoToken;          // Confidential NO token address
 }
 
 // Core functions
-function createMarket(string question, string[] outcomes, uint256 resolutionTime) external onlyWhitelisted;
-function resolveMarket(bytes32 marketId, uint8 winningOutcome) external onlyOracle;
+function createMarket(
+    string question,
+    uint256 resolutionTime
+) external onlyWhitelisted returns (bytes32 marketId);
+
+function resolveMarket(bytes32 marketId, bool outcome) external onlyOracle;
 function getMarketInfo(bytes32 marketId) external view returns (Market);
 ```
 
-#### OrderQueue.sol
+#### ConfidentialERC20.sol (Nocturne-based)
 ```solidity
-struct EncryptedOrder {
-    bytes32 orderId;
-    bytes32 marketId;
-    address user;
-    bytes encryptedPayload;    // Encrypted: {side, outcome, price, amount}
-    uint256 timestamp;
-}
+// Reference: https://github.com/nocturne-protocol/private-token-contract
 
-// Core functions
-function submitOrder(bytes32 marketId, bytes encryptedPayload) external;
-function cancelOrder(bytes32 orderId, bytes signature) external;
+contract ConfidentialERC20 {
+    // Balances chiffrees par courbe elliptique
+    // Chaque balance est un point sur la courbe (2 coordonnees)
+    mapping(address => bytes) public encryptedBalances;
 
-// Events for TEE
-event OrderSubmitted(bytes32 indexed orderId, bytes32 indexed marketId, address user, bytes payload);
-event OrderCancelled(bytes32 indexed orderId);
-```
+    // Adresse de l'iApp TEE autorisee a modifier les balances
+    address public teeApp;
 
-#### PrivateToken.sol (Nocturne Integration)
-```solidity
-// Encrypted balance mapping
-mapping(address => bytes) public encryptedBalances;
-
-// TEE-only functions
-function batchUpdateBalances(address[] users, bytes[] newBalances) external onlyTEE;
-function mint(address to, bytes encryptedAmount) external onlyOwner;
-
-// User functions
-function deposit(uint256 amount) external;      // Convert USDC to private tokens
-function withdraw(bytes proof) external;        // Withdraw with ZK proof of balance
-```
-
-#### StateAnchor.sol (PMT Root Commitment)
-```solidity
-contract StateAnchor {
-    bytes32 public currentRoot;
-    uint256 public stateVersion;
-    address public teeAddress;
-
-    mapping(uint256 => bytes32) public rootHistory;  // version => root
-    mapping(bytes32 => uint256) public rootVersions; // root => version (for proof verification)
-
-    event StateUpdated(
-        uint256 indexed version,
-        bytes32 indexed newRoot,
-        bytes32 indexed previousRoot,
-        bytes32 matchId
-    );
+    // Total supply (peut etre public ou chiffre selon le besoin)
+    uint256 public totalSupply;
 
     modifier onlyTEE() {
-        require(msg.sender == teeAddress, "Only TEE");
+        require(msg.sender == teeApp, "Only TEE iApp");
         _;
     }
 
-    // Called after EVERY match
-    function commitRoot(
-        bytes32 newRoot,
-        bytes32 matchId,
-        bytes calldata teeAttestation
+    // Appele uniquement par l'iApp apres calcul dans le TEE
+    function updateBalances(
+        address from,
+        bytes calldata newFromBalance,
+        address to,
+        bytes calldata newToBalance
     ) external onlyTEE {
-        require(verifyAttestation(teeAttestation), "Invalid attestation");
+        encryptedBalances[from] = newFromBalance;
+        encryptedBalances[to] = newToBalance;
 
-        bytes32 previousRoot = currentRoot;
-        currentRoot = newRoot;
-        stateVersion++;
-
-        rootHistory[stateVersion] = newRoot;
-        rootVersions[newRoot] = stateVersion;
-
-        emit StateUpdated(stateVersion, newRoot, previousRoot, matchId);
+        emit ConfidentialTransfer(from, to);
     }
 
-    // Verify a Merkle Patricia proof against a committed root
-    function verifyProof(
-        bytes32 root,
-        bytes memory key,
-        bytes memory value,
-        bytes[] memory proof
-    ) external view returns (bool) {
-        require(rootVersions[root] > 0, "Root not committed");
-        return MerklePatriciaProof.verify(root, key, value, proof);
+    // Deposit: USDC -> cUSDC (pour le token cUSDC uniquement)
+    function deposit(uint256 amount) external {
+        // Transfer USDC from user
+        IERC20(usdc).transferFrom(msg.sender, address(this), amount);
+
+        // Trigger iApp to mint encrypted balance
+        // L'iApp va chiffrer le montant et l'ajouter a la balance
+        emit DepositRequested(msg.sender, amount);
     }
 
-    // Get root at specific version (for historical proofs)
-    function getRootAtVersion(uint256 version) external view returns (bytes32) {
-        require(version <= stateVersion, "Version not yet committed");
-        return rootHistory[version];
+    // Withdraw: cUSDC -> USDC
+    function withdraw(bytes calldata encryptedAmount, bytes calldata proof) external {
+        // L'iApp verifie et execute le withdrawal
+        emit WithdrawRequested(msg.sender, encryptedAmount, proof);
     }
 
-    function verifyAttestation(bytes calldata attestation) internal pure returns (bool) {
-        // Verify Intel SGX attestation
-        // Implementation depends on iExec's attestation format
-        return true; // Simplified for spec
-    }
+    event ConfidentialTransfer(address indexed from, address indexed to);
+    event DepositRequested(address indexed user, uint256 amount);
+    event WithdrawRequested(address indexed user, bytes encryptedAmount, bytes proof);
 }
 ```
 
-### 2. TEE Matching Engine
+#### PredictionMarket.sol
+```solidity
+contract PredictionMarket {
+    bytes32 public marketId;
+    ConfidentialERC20 public cUsdc;
+    ConfidentialERC20 public cYes;
+    ConfidentialERC20 public cNo;
+    address public teeApp;
 
-#### Order Book (per outcome)
-```typescript
-interface OrderBook {
-  marketId: string;
-  outcomeIndex: number;
-  bids: PriorityQueue<Order>;  // Sorted by price DESC, time ASC
-  asks: PriorityQueue<Order>;  // Sorted by price ASC, time ASC
-}
+    bool public resolved;
+    bool public outcome;  // true = YES, false = NO
 
-interface Order {
-  orderId: string;
-  userId: string;
-  side: 'BUY' | 'SELL';
-  price: number;      // 0.01 to 0.99 (probability)
-  amount: number;     // In collateral units
-  timestamp: number;
-  status: 'OPEN' | 'PARTIAL' | 'FILLED' | 'CANCELLED';
+    // Acheter des cYES ou cNO avec des cUSDC
+    // Le prix est determine... (voir section Price Discovery)
+    function buy(
+        bool isYes,                    // true = acheter cYES, false = acheter cNO
+        bytes calldata encryptedAmount // montant de cUSDC a depenser
+    ) external {
+        // Trigger iApp pour executer le swap confidentiel
+        emit BuyRequested(msg.sender, isYes, encryptedAmount);
+    }
+
+    // Vendre des cYES ou cNO contre des cUSDC
+    function sell(
+        bool isYes,
+        bytes calldata encryptedAmount
+    ) external {
+        emit SellRequested(msg.sender, isYes, encryptedAmount);
+    }
+
+    // Apres resolution, echanger les tokens gagnants contre cUSDC
+    function redeem() external {
+        require(resolved, "Market not resolved");
+        // Trigger iApp pour calculer et transferer
+        emit RedeemRequested(msg.sender);
+    }
+
+    event BuyRequested(address indexed user, bool isYes, bytes encryptedAmount);
+    event SellRequested(address indexed user, bool isYes, bytes encryptedAmount);
+    event RedeemRequested(address indexed user);
 }
 ```
 
-#### Position Manager
+### 2. iApp TEE (iExec)
+
+#### Confidential Transfer Engine
 ```typescript
-interface Position {
-  oderId: string
-  oderId: string
-  oderId: string
-  userId: string;
-  marketId: string;
-  outcomeIndex: number;
-  shares: number;           // Positive = long, negative = short
-  avgEntryPrice: number;
-  realizedPnL: number;
-}
+// Reference: https://github.com/nocturne-protocol/iapp_iexec
 
-interface UserState {
-  balance: bigint;          // Available collateral
-  positions: Map<string, Position>;  // marketId:outcomeIndex -> Position
-}
-```
+class ConfidentialTransferEngine {
+  private privateKey: PrivateKey;  // Scelle dans l'enclave
 
-#### State Management (MPT)
-```typescript
-interface StateRoot {
-  version: number;
-  rootHash: string;
-  timestamp: number;
-}
+  async handleDeposit(user: address, amount: bigint) {
+    // Chiffrer le montant et l'ajouter a la balance existante
+    const currentBalance = await this.decryptBalance(user, 'cUSDC');
+    const newBalance = currentBalance + amount;
+    const encrypted = this.encrypt(newBalance);
+    await this.updateOnChain(user, encrypted);
+  }
 
-// State stored as encrypted Merkle Patricia Trie
-// Keys: user addresses
-// Values: encrypted UserState
+  async handleBuy(user: address, isYes: boolean, encryptedAmount: bytes) {
+    // 1. Dechiffrer le montant de cUSDC a depenser
+    const amount = this.decrypt(encryptedAmount);
+
+    // 2. Verifier la balance cUSDC
+    const cusdcBalance = await this.decryptBalance(user, 'cUSDC');
+    if (cusdcBalance < amount) throw new Error('INSUFFICIENT_BALANCE');
+
+    // 3. Calculer le prix et la quantite de tokens a recevoir
+    // (voir section Price Discovery pour les details)
+    const tokensToReceive = this.calculateTokensForPrice(amount, isYes);
+
+    // 4. Mettre a jour les balances
+    await this.updateBalance(user, 'cUSDC', cusdcBalance - amount);
+
+    const tokenType = isYes ? 'cYES' : 'cNO';
+    const tokenBalance = await this.decryptBalance(user, tokenType);
+    await this.updateBalance(user, tokenType, tokenBalance + tokensToReceive);
+  }
+
+  async handleSettlement(user: address, winningToken: 'cYES' | 'cNO') {
+    // Convertir tous les tokens gagnants en cUSDC (1:1)
+    const winningBalance = await this.decryptBalance(user, winningToken);
+    const cusdcBalance = await this.decryptBalance(user, 'cUSDC');
+
+    await this.updateBalance(user, winningToken, 0n);
+    await this.updateBalance(user, 'cUSDC', cusdcBalance + winningBalance);
+
+    // Les tokens perdants sont automatiquement sans valeur
+  }
+}
 ```
 
 ### 3. Oracle Integration (iExec Native)
@@ -300,14 +445,13 @@ interface StateRoot {
 interface OracleRequest {
   marketId: string;
   question: string;
-  outcomes: string[];
   resolutionTime: number;
 }
 
 interface OracleResponse {
   marketId: string;
-  winningOutcome: number;    // Index of winning outcome
-  attestation: string;       // TEE attestation of result
+  outcome: boolean;         // true = YES wins, false = NO wins
+  attestation: string;      // TEE attestation of result
 }
 ```
 
@@ -319,99 +463,95 @@ interface OracleResponse {
 
 | Data | Visibility | Rationale |
 |------|------------|-----------|
-| Order contents | TEE only | Prevent front-running |
-| Position sizes | User only | Prevent position hunting |
-| User balances | User only | Financial privacy |
-| Order book depth | Hidden | Prevent manipulation |
-| Individual trades | Participants only | Trade privacy |
+| User balances (cUSDC, cYES, cNO) | TEE only | Encrypted on-chain |
+| Position sizes | User only (via viewing key) | Prevent position hunting |
+| Transaction amounts | TEE only | Prevent front-running |
+| Individual trades | Participants + TEE | Trade privacy |
 
 ### What is Public
 
 | Data | Visibility | Rationale |
 |------|------------|-----------|
 | Market exists | Public | Discoverability |
-| Market question/outcomes | Public | Users need to know what they're betting on |
-| Best bid/ask (spread) | Public | Price discovery, UX |
-| Last trade price | Public | Market sentiment signal |
-| Total volume (optional) | Public | Market health indicator |
+| Market question | Public | Users need to know what they're betting on |
+| Total supply (optional) | Public | Market health indicator |
 | Resolution result | Public | Verifiable fairness |
+| Spot price (challenge!) | See section below | Price discovery |
 
-### Encryption Scheme
+### Encryption Scheme (NaCl - MVP)
 
 ```
-User -> TEE Communication:
-- NaCl box (X25519 + XSalsa20-Poly1305)
-- User encrypts with TEE public key
-- TEE decrypts inside enclave
+Token Balances:
+- Chiffrement symetrique via XSalsa20-Poly1305 (secretbox)
+- balance_encrypted = secretbox(value + randomness, sealed_key)
+- Fresh randomness a chaque operation pour eviter les patterns
 
-TEE -> User Communication:
-- Each user has ephemeral keypair
-- TEE encrypts response with user's public key
-- User decrypts locally
+TEE Sealed Key:
+- Cle symetrique 32 bytes scellee dans l'enclave (SGX sealing)
+- Jamais exposee, meme aux operateurs iExec
+- Utilisee pour chiffrer/dechiffrer les balances
 
-State Encryption:
-- AES-256-GCM for state at rest
-- TEE-derived key from sealing
-- Key never leaves enclave
+User Communication:
+- Box encryption (X25519 + XSalsa20-Poly1305) pour ordres
+- User genere une keypair, envoie public key avec l'ordre
+- TEE dechiffre avec sa secret key + user public key
+
+Note: Pas d'operations homomorphes dans le MVP
+- Le TEE dechiffre, calcule en clair, re-chiffre
+- Simplifie l'implementation sans compromis de securite
 ```
 
 ---
 
 ## Market Mechanics
 
-### Categorical Market Structure
+### Binary Market Structure (MVP)
 
-For a market "Who wins: Team A vs Team B vs Draw?":
+Pour le MVP, chaque marche est binaire avec 2 outcomes uniquement :
 
 ```
 Market ID: 0xabc123...
-Outcomes: [0: "Team A", 1: "Team B", 2: "Draw"]
+Question: "Will BTC reach $100k by Dec 2024?"
+Outcomes: [YES, NO]
 
-Order Books:
-- Outcome 0 Book: Buy/Sell shares of "Team A wins"
-- Outcome 1 Book: Buy/Sell shares of "Team B wins"
-- Outcome 2 Book: Buy/Sell shares of "Draw"
+Tokens:
+- cYES: Vaut 1 cUSDC si YES gagne, 0 sinon
+- cNO: Vaut 1 cUSDC si NO gagne, 0 sinon
 
-Price Constraint: Sum of fair prices should approach 1.0
-- If Team A = 0.45, Team B = 0.40, Draw = 0.15 → Sum = 1.0
+Contrainte: P(YES) + P(NO) = 1.0
+- Si cYES = 0.65, alors cNO devrait valoir 0.35
 ```
 
-### Order Types (MVP)
-
-| Type | Description |
-|------|-------------|
-| Limit Buy | Buy shares at specified price or better |
-| Limit Sell | Sell shares at specified price or better |
-| Cancel | Cancel open order by ID |
-
-### Position Lifecycle
+### Position Lifecycle (Confidential)
 
 ```
-1. OPEN POSITION
-   - User buys 100 shares of "Team A" at 0.45
-   - Cost: 100 * 0.45 = 45 USDC
-   - Position: +100 shares @ 0.45 avg
+1. DEPOSIT
+   - User depose 100 USDC
+   - Recoit 100 cUSDC (balance chiffree)
+   - Personne ne voit le montant sauf le user (via viewing key)
 
-2. INCREASE POSITION
-   - User buys 50 more at 0.50
-   - Cost: 50 * 0.50 = 25 USDC
-   - Position: +150 shares @ 0.467 avg
+2. BUY cYES
+   - User achete cYES avec 50 cUSDC au prix spot de 0.50
+   - Recoit 100 cYES (50 / 0.50)
+   - Balance: 50 cUSDC, 100 cYES, 0 cNO (tout chiffre)
 
-3. REDUCE POSITION
-   - User sells 50 shares at 0.55
-   - Revenue: 50 * 0.55 = 27.5 USDC
-   - Realized P&L: 50 * (0.55 - 0.467) = +4.15 USDC
-   - Position: +100 shares @ 0.467 avg
+3. SELL cYES
+   - User vend 50 cYES a 0.60
+   - Recoit 30 cUSDC
+   - Balance: 80 cUSDC, 50 cYES, 0 cNO
 
-4. SETTLEMENT (Team A wins)
-   - Each share pays 1.0
-   - Payout: 100 * 1.0 = 100 USDC
-   - Total P&L: 100 - (100 * 0.467) + 4.15 = +57.45 USDC
+4. SETTLEMENT (YES wins)
+   - Chaque cYES vaut 1 cUSDC
+   - 50 cYES -> 50 cUSDC
+   - Balance finale: 130 cUSDC
 
-4b. SETTLEMENT (Team A loses)
-   - Each share pays 0.0
-   - Payout: 0 USDC
-   - Total P&L: 0 - (100 * 0.467) + 4.15 = -42.55 USDC
+4b. SETTLEMENT (NO wins)
+   - cYES vaut 0
+   - Balance finale: 80 cUSDC (les cYES sont perdus)
+
+5. WITHDRAW
+   - User burn 130 cUSDC
+   - Recoit 130 USDC
 ```
 
 ### Fee Structure
@@ -424,472 +564,413 @@ Price Constraint: Sum of fair prices should approach 1.0
 
 ---
 
-## Order Book Design
+## Price Discovery Challenge
 
-### PMT-Native Architecture
+### Le probleme fondamental
 
-The order book is implemented as a **Patricia Merkle Trie (PMT)** where all state lives in the trie structure. This provides:
+> **Comment determiner le prix spot (cUSDC / cYES / cNO) alors que toutes les positions sont invisibles ?**
 
-1. **Verifiable State**: Users can verify their orders exist via Merkle proofs
-2. **On-Chain Anchoring**: Root hash committed after every match for dispute resolution
-3. **Deterministic Matching**: Same inputs always produce same state transitions
-4. **Auditability**: Complete state history via root chain on-chain
+C'est le defi majeur de l'architecture confidential tokens. Plusieurs approches sont possibles :
+
+### Option 1: AMM Confidentiel (Constant Product)
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     PMT Order Book State                         │
-│                                                                  │
-│  Root Hash ─────────────────────────────────────────────────────│
-│       │                                                          │
-│       ├── market:{marketId}:outcome:{idx}:ask:{price}:{orderId} │
-│       │         → Order data                                     │
-│       │                                                          │
-│       ├── market:{marketId}:outcome:{idx}:bid:{invPrice}:{orderId}
-│       │         → Order data (inverted price for sort)           │
-│       │                                                          │
-│       ├── user:{address}:balance                                 │
-│       │         → Encrypted balance                              │
-│       │                                                          │
-│       └── user:{address}:position:{marketId}:{outcomeIdx}        │
-│                 → Position data                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
+Concept:
+- Pool de liquidite: cUSDC <-> cYES et cUSDC <-> cNO
+- Formule: x * y = k (comme Uniswap)
+- Le TEE maintient les reserves en clair dans l'enclave
+- Seul le TEE connait les vraies reserves
 
-### Composite Key Encoding
+Avantages:
+- Prix automatique base sur les reserves
+- Pas besoin d'order book
+- Simple a implementer
 
-Keys are structured for efficient iteration during matching:
+Inconvenients:
+- Slippage pour les gros trades
+- Necessite de la liquidite initiale
+- Le TEE doit exposer un prix "indicatif"
 
+Implementation:
 ```typescript
-// Key format: {namespace}:{...segments}
-type PMTKey = string;
+class ConfidentialAMM {
+  // Reserves connues uniquement dans le TEE
+  private reserveUSDC: bigint;
+  private reserveYES: bigint;
+  private reserveNO: bigint;
 
-// Order keys - designed for lexicographic iteration
-interface OrderKeyComponents {
-  marketId: string;      // 32 bytes hex
-  outcomeIndex: number;  // 0-9
-  side: 'bid' | 'ask';
-  price: string;         // 4 chars, see encoding below
-  orderId: string;       // 32 bytes hex (timestamp-based for FIFO)
-}
-
-function encodeOrderKey(c: OrderKeyComponents): PMTKey {
-  const priceEncoded = c.side === 'ask'
-    ? encodePriceAsk(c.price)      // 0.45 → "0450" (natural sort)
-    : encodePriceBid(c.price);     // 0.45 → "9549" (inverted for DESC)
-
-  return `market:${c.marketId}:outcome:${c.outcomeIndex}:${c.side}:${priceEncoded}:${c.orderId}`;
-}
-
-// Price encoding for lexicographic ordering
-function encodePriceAsk(price: number): string {
-  // 0.01 → "0001", 0.99 → "0099"
-  // Natural ascending order: lower prices first (better asks)
-  return Math.round(price * 100).toString().padStart(4, '0');
-}
-
-function encodePriceBid(price: number): string {
-  // Invert so higher prices sort first
-  // 0.99 → "0000", 0.01 → "0098"
-  // Lexicographic ascending = price descending (better bids)
-  const inverted = 9999 - Math.round(price * 100);
-  return inverted.toString().padStart(4, '0');
-}
-
-// Examples:
-// Ask 0.45 → "market:0xabc:outcome:0:ask:0045:0x123"
-// Bid 0.45 → "market:0xabc:outcome:0:bid:9954:0x456"
-// Bid 0.50 → "market:0xabc:outcome:0:bid:9949:0x789" (sorts BEFORE 0.45 bid)
-```
-
-### Order Data Structure
-
-```typescript
-interface OrderValue {
-  orderId: string;
-  userId: string;
-  side: 'BUY' | 'SELL';
-  price: number;           // Original price (0.01-0.99)
-  amount: number;          // Remaining amount
-  originalAmount: number;  // Initial amount (for partial fill tracking)
-  timestamp: number;       // Unix ms, used in orderId for FIFO
-  status: 'OPEN' | 'PARTIAL';
-}
-
-// Serialized as JSON, stored as value in PMT
-```
-
-### PMT-Native Matching Algorithm
-
-```typescript
-import { Trie } from '@ethereumjs/trie';
-
-class PMTOrderBook {
-  private trie: Trie;
-
-  async match(incomingOrder: Order): Promise<MatchResult> {
-    const fills: Fill[] = [];
-    let remaining = incomingOrder.amount;
-
-    // Determine which side of the book to match against
-    const matchSide = incomingOrder.side === 'BUY' ? 'ask' : 'bid';
-    const keyPrefix = `market:${incomingOrder.marketId}:outcome:${incomingOrder.outcomeIndex}:${matchSide}:`;
-
-    // Iterate through orders in price-time priority
-    // PMT iteration is lexicographic, our key encoding ensures correct order
-    for await (const { key, value } of this.trie.createReadStream({ gte: keyPrefix, lt: keyPrefix + '~' })) {
-      const makerOrder: OrderValue = JSON.parse(value.toString());
-
-      // Check price compatibility
-      if (!priceMatches(incomingOrder, makerOrder)) break;
-
-      // Calculate fill
-      const fillAmount = Math.min(remaining, makerOrder.amount);
-      fills.push({
-        makerId: makerOrder.orderId,
-        visitorId: incomingOrder.orderId,
-        amount: fillAmount,
-        price: makerOrder.price,
-      });
-
-      // Update or remove maker order in PMT
-      if (fillAmount >= makerOrder.amount) {
-        await this.trie.del(Buffer.from(key));
-      } else {
-        makerOrder.amount -= fillAmount;
-        makerOrder.status = 'PARTIAL';
-        await this.trie.put(Buffer.from(key), Buffer.from(JSON.stringify(makerOrder)));
-      }
-
-      remaining -= fillAmount;
-      if (remaining === 0) break;
-    }
-
-    // Add remaining as resting order
-    if (remaining > 0) {
-      const restingOrder: OrderValue = {
-        ...incomingOrder,
-        amount: remaining,
-        status: remaining < incomingOrder.amount ? 'PARTIAL' : 'OPEN',
-      };
-      const key = encodeOrderKey({
-        marketId: incomingOrder.marketId,
-        outcomeIndex: incomingOrder.outcomeIndex,
-        side: incomingOrder.side === 'BUY' ? 'bid' : 'ask',
-        price: incomingOrder.price,
-        orderId: incomingOrder.orderId,
-      });
-      await this.trie.put(Buffer.from(key), Buffer.from(JSON.stringify(restingOrder)));
-    }
-
-    // Update positions and balances for all fills
-    await this.updatePositionsAndBalances(fills, incomingOrder);
-
+  // Prix indicatif (peut etre publie)
+  getIndicativePrice(): { yes: number; no: number } {
     return {
-      fills,
-      remainingAmount: remaining,
-      newRoot: this.trie.root().toString('hex'),
+      yes: Number(this.reserveUSDC) / Number(this.reserveYES),
+      no: Number(this.reserveUSDC) / Number(this.reserveNO),
     };
   }
 
-  private priceMatches(taker: Order, maker: OrderValue): boolean {
-    if (taker.side === 'BUY') {
-      return maker.price <= taker.price; // Taker willing to pay at least maker's ask
-    } else {
-      return maker.price >= taker.price; // Taker willing to sell at least at maker's bid
-    }
+  // Swap confidentiel
+  async swapUSDCForYES(user: address, encryptedAmount: bytes) {
+    const amountIn = this.decrypt(encryptedAmount);
+
+    // Constant product formula
+    const amountOut = this.getAmountOut(amountIn, this.reserveUSDC, this.reserveYES);
+
+    // Update reserves
+    this.reserveUSDC += amountIn;
+    this.reserveYES -= amountOut;
+
+    // Update user balances (encrypted)
+    await this.updateUserBalances(user, -amountIn, amountOut);
   }
 }
 ```
 
-### On-Chain Root Commitment
+### Option 2: Order Book Confidentiel dans le TEE
 
-After **every match**, the new PMT root is committed on-chain:
-
-```solidity
-// StateAnchor.sol
-contract StateAnchor {
-    bytes32 public currentRoot;
-    uint256 public stateVersion;
-
-    // Emitted after each match - enables proof verification
-    event StateUpdated(
-        uint256 indexed version,
-        bytes32 indexed newRoot,
-        bytes32 indexed previousRoot,
-        bytes32 matchId  // Links to specific match for audit
-    );
-
-    // Called by TEE after each match
-    function commitRoot(
-        bytes32 newRoot,
-        bytes32 matchId,
-        bytes calldata attestation
-    ) external onlyTEE {
-        require(verifyAttestation(attestation), "Invalid TEE attestation");
-
-        emit StateUpdated(stateVersion, newRoot, currentRoot, matchId);
-
-        currentRoot = newRoot;
-        stateVersion++;
-    }
-
-    // Users can verify proofs against committed roots
-    function verifyProof(
-        bytes32 root,
-        bytes calldata key,
-        bytes calldata value,
-        bytes calldata proof
-    ) external pure returns (bool) {
-        return MerklePatriciaProof.verify(root, key, value, proof);
-    }
-}
 ```
+Concept:
+- Order book classique mais ENTIEREMENT dans le TEE
+- Les ordres sont soumis chiffres
+- Le matching se fait dans l'enclave
+- Seul le spread (best bid/ask) est publie
 
-### Proof Generation & Verification
+Avantages:
+- Price discovery classique et efficace
+- Pas de slippage pour les market makers
+- Compatible avec les traders pro
 
-Users can request proofs to verify their state without trusting the TEE:
+Inconvenients:
+- Plus complexe a implementer
+- Necessite un MEV-resistant ordering
+- Latence potentielle
 
+Implementation:
 ```typescript
-// TEE generates proof for user's order
-async function generateOrderProof(orderId: string): Promise<OrderProof> {
-  const key = getOrderKeyById(orderId);
-  const proof = await trie.createProof(Buffer.from(key));
-  const value = await trie.get(Buffer.from(key));
+class ConfidentialOrderBook {
+  private bids: Map<number, Order[]>;  // price -> orders
+  private asks: Map<number, Order[]>;
 
-  return {
-    key,
-    value: value?.toString() ?? null,
-    proof: proof.map(p => p.toString('hex')),
-    root: trie.root().toString('hex'),
-    stateVersion: currentVersion,
-  };
-}
-
-// Client-side verification
-async function verifyOrderExists(
-  proof: OrderProof,
-  expectedOrder: Order,
-  onChainRoot: string
-): Promise<boolean> {
-  // 1. Verify root matches on-chain
-  if (proof.root !== onChainRoot) return false;
-
-  // 2. Verify Merkle proof
-  const isValid = await Trie.verifyProof(
-    Buffer.from(proof.root, 'hex'),
-    Buffer.from(proof.key),
-    proof.proof.map(p => Buffer.from(p, 'hex'))
-  );
-  if (!isValid) return false;
-
-  // 3. Verify order data matches
-  const orderData = JSON.parse(proof.value);
-  return orderData.orderId === expectedOrder.orderId
-    && orderData.amount === expectedOrder.amount;
-}
-```
-
-### Price-Time Priority via Key Design
-
-The composite key structure ensures correct matching order:
-
-```
-Asks (ascending price, then time):
-  market:X:outcome:0:ask:0030:ts001  → 0.30 @ time 1 (BEST - matched first)
-  market:X:outcome:0:ask:0030:ts002  → 0.30 @ time 2
-  market:X:outcome:0:ask:0045:ts001  → 0.45 @ time 1
-  market:X:outcome:0:ask:0050:ts001  → 0.50 @ time 1 (WORST)
-
-Bids (descending price via inversion, then time):
-  market:X:outcome:0:bid:9949:ts001  → 0.50 @ time 1 (BEST - matched first)
-  market:X:outcome:0:bid:9949:ts002  → 0.50 @ time 2
-  market:X:outcome:0:bid:9954:ts001  → 0.45 @ time 1
-  market:X:outcome:0:bid:9969:ts001  → 0.30 @ time 1 (WORST)
-```
-
-### Spread Calculation (Public)
-
-```typescript
-async function getPublicSpread(marketId: string): Promise<SpreadInfo[]> {
-  const spreads: SpreadInfo[] = [];
-
-  for (let outcomeIdx = 0; outcomeIdx < numOutcomes; outcomeIdx++) {
-    // Get best bid (first in inverted-price iteration)
-    const bidPrefix = `market:${marketId}:outcome:${outcomeIdx}:bid:`;
-    let bestBid: number | null = null;
-    for await (const { value } of trie.createReadStream({ gte: bidPrefix, lt: bidPrefix + '~', limit: 1 })) {
-      bestBid = JSON.parse(value.toString()).price;
-      break;
-    }
-
-    // Get best ask (first in natural-price iteration)
-    const askPrefix = `market:${marketId}:outcome:${outcomeIdx}:ask:`;
-    let bestAsk: number | null = null;
-    for await (const { value } of trie.createReadStream({ gte: askPrefix, lt: askPrefix + '~', limit: 1 })) {
-      bestAsk = JSON.parse(value.toString()).price;
-      break;
-    }
-
-    spreads.push({ outcomeIndex: outcomeIdx, bestBid, bestAsk });
-    // Note: Depth is NOT revealed - only best prices
+  // Seul le TEE connait le carnet
+  // Publie uniquement le spread
+  getPublicSpread(): { bestBid: number; bestAsk: number } {
+    return {
+      bestBid: Math.max(...this.bids.keys()),
+      bestAsk: Math.min(...this.asks.keys()),
+    };
   }
 
-  return spreads;
+  async submitOrder(user: address, encryptedOrder: bytes) {
+    const order = this.decrypt(encryptedOrder);
+    // Matching logic dans le TEE...
+  }
 }
 ```
 
-### State Transitions & Audit Trail
-
-Every state change produces a new root, creating an immutable audit trail:
+### Option 3: Parimutuel (Pool-based)
 
 ```
-State v0: Root_0 (genesis)
-    │
-    ▼ Order A submitted (buy 100 @ 0.45)
-State v1: Root_1 → committed on-chain
-    │
-    ▼ Order B submitted (sell 50 @ 0.40) - matches with A
-State v2: Root_2 → committed on-chain (includes match)
-    │
-    ▼ Order C submitted (sell 50 @ 0.50) - rests on book
-State v3: Root_3 → committed on-chain
+Concept:
+- Tous les paris vont dans un pool commun
+- Le prix final est determine par la repartition
+- Pas de prix "live", seulement a la cloture
+
+Avantages:
+- Tres simple
+- Pas de probleme de liquidite
+- Naturellement confidentiel
+
+Inconvenients:
+- Pas de prix en temps reel
+- Moins flexible pour les traders
+- Moins intuitif pour les users
+
+Implementation:
+- User bet X cUSDC sur YES
+- A la cloture: Total YES pool = 1000, Total NO pool = 500
+- Prix implicite YES = 1500 / (1000 + 500) * (1000/1000) = 0.67
+- Si YES gagne, payout = bet * (totalPool / yesPool) = X * 1.5
 ```
 
-Each root commit includes:
-- Previous root (for chain verification)
-- Match ID (if match occurred)
-- TEE attestation (proves computation integrity)
+### Option 4: Hybride - AMM + Prix Oracle
 
-### Gas Cost Analysis
+```
+Concept:
+- AMM pour la liquidite de base
+- Oracle externe pour le prix de reference
+- TEE ajuste les reserves pour suivre l'oracle
 
-Committing the PMT root on-chain after every match has gas implications:
+Avantages:
+- Prix externe fiable
+- Liquidite via AMM
+- Arbitrage limite
 
-#### StateAnchor.commitRoot() Gas Breakdown
-
-| Operation | Gas Cost | Notes |
-|-----------|----------|-------|
-| SSTORE (currentRoot) | ~5,000 | Warm slot update (non-zero to non-zero) |
-| SSTORE (stateVersion) | ~5,000 | Increment counter |
-| SSTORE (rootHistory mapping) | ~22,000 | Cold slot, new entry |
-| SSTORE (rootVersions mapping) | ~22,000 | Cold slot, new entry |
-| Event emission (StateUpdated) | ~1,500 | 4 indexed topics + data |
-| Calldata (root + matchId + attestation) | ~2,000 | ~100 bytes @ 16 gas/byte |
-| Base transaction cost | ~21,000 | Inherent tx cost |
-
-**Total per commit: ~78,500 gas**
-
-#### Cost Projections (Arbitrum)
-
-| Scenario | Matches/Day | Daily Gas | Daily Cost (@ 0.1 gwei L2) |
-|----------|-------------|-----------|----------------------------|
-| Low activity | 100 | 7.85M | ~$0.08 |
-| Medium activity | 1,000 | 78.5M | ~$0.80 |
-| High activity | 10,000 | 785M | ~$8.00 |
-
-*Note: Arbitrum L2 gas is ~100x cheaper than L1. Costs shown at 0.1 gwei gas price.*
-
-#### Cost Optimization Strategies
-
-**1. Proof Compression (Implemented)**
-```solidity
-// Store only latest root, emit history via events
-// Reduces SSTORE from 4 to 2 operations
-// Savings: ~44,000 gas per commit
+Inconvenients:
+- Dependance a un oracle externe
+- Peut etre manipule via l'oracle
 ```
 
-**2. Optional Batching Mode (Post-MVP)**
+### Recommandation pour MVP
+
+**Option 1 (AMM Confidentiel)** est recommandee pour le MVP car :
+1. Plus simple a implementer
+2. Fournit un prix indicatif automatique
+3. Pas besoin de market makers externes
+4. Le TEE peut publier le prix sans reveler les volumes
+
+```
+Flow MVP:
+1. Creation du marche avec liquidite initiale (50/50)
+2. Users swap cUSDC <-> cYES ou cUSDC <-> cNO
+3. Le TEE publie le prix indicatif (derive des reserves)
+4. A la resolution, settlement base sur l'outcome
+```
+
+---
+
+## AMM Design (MVP)
+
+### Confidential AMM Architecture
+
+Pour le MVP, nous utilisons un AMM confidentiel base sur le modele constant product (x * y = k).
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                 Confidential AMM Pool (dans le TEE)              │
+│                                                                  │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │  Reserves (en clair dans l'enclave uniquement)              ││
+│  │                                                              ││
+│  │  reserveUSDC: 10,000                                        ││
+│  │  reserveYES:  10,000                                        ││
+│  │  reserveNO:   10,000                                        ││
+│  │                                                              ││
+│  │  k_YES = reserveUSDC * reserveYES = 100,000,000            ││
+│  │  k_NO  = reserveUSDC * reserveNO  = 100,000,000            ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                                                                  │
+│  Prix indicatif (publie):                                       │
+│  - P(YES) = reserveUSDC / reserveYES = 1.0 (50%)               │
+│  - P(NO)  = reserveUSDC / reserveNO  = 1.0 (50%)               │
+│                                                                  │
+│  Note: Les volumes restent confidentiels                        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Swap Logic
+
 ```typescript
-// Config: commitEveryNMatches = 10
-// Pros: 10x gas reduction
-// Cons: 10x latency for proof verification
-// Use case: High-frequency markets
+class ConfidentialAMM {
+  // Reserves connues uniquement dans le TEE
+  private reserveUSDC: bigint;
+  private reserveYES: bigint;
+  private reserveNO: bigint;
+
+  // Constantes du pool
+  private kYES: bigint;  // reserveUSDC * reserveYES
+  private kNO: bigint;   // reserveUSDC * reserveNO
+
+  // Prix indicatif publiable (sans reveler les volumes)
+  getIndicativePrice(): { yes: number; no: number } {
+    const priceYes = Number(this.reserveUSDC) / Number(this.reserveYES);
+    const priceNo = Number(this.reserveUSDC) / Number(this.reserveNO);
+
+    // Normalisation pour que P(YES) + P(NO) = 1
+    const total = priceYes + priceNo;
+    return {
+      yes: priceYes / total,
+      no: priceNo / total,
+    };
+  }
+
+  // Acheter cYES avec cUSDC
+  async buyYES(user: address, encryptedAmountIn: bytes): Promise<void> {
+    // 1. Dechiffrer le montant
+    const amountIn = this.decrypt(encryptedAmountIn);
+
+    // 2. Verifier la balance cUSDC de l'utilisateur
+    const userBalance = await this.decryptBalance(user, 'cUSDC');
+    if (userBalance < amountIn) {
+      throw new Error('INSUFFICIENT_BALANCE');
+    }
+
+    // 3. Calculer le montant de cYES a recevoir (constant product)
+    // newReserveUSDC = reserveUSDC + amountIn
+    // newReserveYES = k / newReserveUSDC
+    // amountOut = reserveYES - newReserveYES
+    const newReserveUSDC = this.reserveUSDC + amountIn;
+    const newReserveYES = this.kYES / newReserveUSDC;
+    const amountOut = this.reserveYES - newReserveYES;
+
+    // 4. Appliquer les frais (0.3%)
+    const fee = amountOut * 3n / 1000n;
+    const amountOutAfterFee = amountOut - fee;
+
+    // 5. Mettre a jour les reserves
+    this.reserveUSDC = newReserveUSDC;
+    this.reserveYES = newReserveYES;
+
+    // 6. Mettre a jour les balances utilisateur (chiffrees)
+    await this.updateBalance(user, 'cUSDC', userBalance - amountIn);
+    const yesBalance = await this.decryptBalance(user, 'cYES');
+    await this.updateBalance(user, 'cYES', yesBalance + amountOutAfterFee);
+  }
+
+  // Vendre cYES contre cUSDC
+  async sellYES(user: address, encryptedAmountIn: bytes): Promise<void> {
+    const amountIn = this.decrypt(encryptedAmountIn);
+
+    const userYesBalance = await this.decryptBalance(user, 'cYES');
+    if (userYesBalance < amountIn) {
+      throw new Error('INSUFFICIENT_BALANCE');
+    }
+
+    // Constant product: vendre YES = ajouter YES, retirer USDC
+    const newReserveYES = this.reserveYES + amountIn;
+    const newReserveUSDC = this.kYES / newReserveYES;
+    const amountOut = this.reserveUSDC - newReserveUSDC;
+
+    const fee = amountOut * 3n / 1000n;
+    const amountOutAfterFee = amountOut - fee;
+
+    this.reserveYES = newReserveYES;
+    this.reserveUSDC = newReserveUSDC;
+
+    await this.updateBalance(user, 'cYES', userYesBalance - amountIn);
+    const usdcBalance = await this.decryptBalance(user, 'cUSDC');
+    await this.updateBalance(user, 'cUSDC', usdcBalance + amountOutAfterFee);
+  }
+}
 ```
 
-**3. Attestation Caching**
-```solidity
-// Cache TEE attestation, only verify periodically
-// Skip attestation param on subsequent calls
-// Savings: ~1,500 gas per commit
+### Initialisation du Pool
+
+```typescript
+// A la creation du marche
+async function initializePool(marketId: string, initialLiquidity: bigint) {
+  // Liquidity provider depose cUSDC
+  // Le pool commence avec des probabilites 50/50
+
+  const initialReserve = initialLiquidity / 2n;
+
+  this.reserveUSDC = initialReserve;
+  this.reserveYES = initialReserve;
+  this.reserveNO = initialReserve;
+
+  // k constants
+  this.kYES = this.reserveUSDC * this.reserveYES;
+  this.kNO = this.reserveUSDC * this.reserveNO;
+
+  // Le LP recoit des LP tokens (aussi confidentiels)
+  // Post-MVP: gestion des LP tokens
+}
 ```
 
-#### Who Pays Gas?
+### Slippage et Impact sur le Prix
 
-| Model | Description | Pros | Cons |
-|-------|-------------|------|------|
-| Protocol pays | Treasury funds commits | Best UX | Treasury drain risk |
-| Taker pays | Included in trading fee | Self-sustaining | Higher fees |
-| Hybrid | Protocol subsidizes up to N/day | Balanced | Complex accounting |
+```typescript
+// Calcul du slippage pour un trade
+function calculateSlippage(amountIn: bigint, reserveIn: bigint, reserveOut: bigint): number {
+  // Prix spot avant trade
+  const spotPrice = Number(reserveIn) / Number(reserveOut);
 
-**Recommended for MVP**: Protocol pays from treasury, funded by trading fees.
+  // Prix effectif apres trade
+  const amountOut = getAmountOut(amountIn, reserveIn, reserveOut);
+  const effectivePrice = Number(amountIn) / Number(amountOut);
 
-#### Comparison to Alternatives
+  // Slippage en %
+  return ((effectivePrice - spotPrice) / spotPrice) * 100;
+}
 
-| Approach | Gas/Match | Verifiability | Latency |
-|----------|-----------|---------------|---------|
-| PMT root per match | ~78,500 | Instant proof | Immediate |
-| Batched roots (10) | ~7,850 | 10-match delay | ~seconds |
-| Optimistic (dispute) | ~0 | Challenge period | ~minutes |
-| No on-chain anchor | 0 | Trust TEE only | N/A |
+// Pour eviter les gros slippages
+function getAmountOut(amountIn: bigint, reserveIn: bigint, reserveOut: bigint): bigint {
+  const amountInWithFee = amountIn * 997n;  // 0.3% fee
+  const numerator = amountInWithFee * reserveOut;
+  const denominator = reserveIn * 1000n + amountInWithFee;
+  return numerator / denominator;
+}
+```
 
-The per-match commit approach prioritizes verifiability over gas efficiency - appropriate for a prediction market where proof of fair execution is a key value proposition.
+### Ce qui est Public vs Prive
+
+| Donnee | Visibilite | Justification |
+|--------|------------|---------------|
+| Prix indicatif (P_YES, P_NO) | Public | Necessaire pour l'UX |
+| Reserves exactes | TEE only | Evite la manipulation |
+| Volume des trades | TEE only | Confidentialite |
+| Balances utilisateurs | Chiffrees on-chain | Privacy |
+| Montants des swaps | TEE only | Prevent front-running |
 
 ---
 
 ## Resolution & Settlement
 
-### Resolution Flow
+### Resolution Flow (Confidential)
 
 ```
 1. Resolution time reached
 2. iExec Oracle fetches result from trusted source
 3. Oracle submits result to TEE with attestation
 4. TEE verifies attestation
-5. TEE calculates all payouts:
-   - Winners: shares * 1.0
-   - Losers: shares * 0.0
-6. TEE batches balance updates
-7. TEE calls PrivateToken.batchUpdateBalances()
-8. Market marked as resolved on-chain
+5. TEE met a jour le statut du marche: resolved = true, outcome = YES/NO
+6. Users peuvent maintenant appeler redeem()
+7. Pour chaque redeem:
+   - TEE dechiffre la balance cYES ou cNO de l'utilisateur
+   - Si l'utilisateur a des tokens gagnants, convertit 1:1 en cUSDC
+   - Les tokens perdants valent 0 (aucune action)
+8. User peut withdraw cUSDC -> USDC
 ```
 
-### Settlement Calculation
+### Settlement Calculation (Confidential)
 
 ```typescript
-function settleMarket(marketId: string, winningOutcome: number): BalanceUpdate[] {
-  const updates: BalanceUpdate[] = [];
+async function settleUserPosition(user: address, outcome: boolean): Promise<void> {
+  // Determiner quel token a gagne
+  const winningToken = outcome ? 'cYES' : 'cNO';
+  const losingToken = outcome ? 'cNO' : 'cYES';
 
-  for (const [userId, userState] of state.entries()) {
-    let payout = 0;
+  // Dechiffrer les balances
+  const winningBalance = await this.decryptBalance(user, winningToken);
+  const losingBalance = await this.decryptBalance(user, losingToken);
+  const usdcBalance = await this.decryptBalance(user, 'cUSDC');
 
-    for (const [posKey, position] of userState.positions) {
-      if (!posKey.startsWith(marketId)) continue;
+  // Tokens gagnants -> cUSDC (1:1)
+  const payout = winningBalance;
 
-      const outcomeIdx = parseInt(posKey.split(':')[1]);
+  // Mettre a jour les balances (tout re-chiffre)
+  await this.updateBalance(user, winningToken, 0n);
+  await this.updateBalance(user, losingToken, 0n);  // Valent 0 de toute facon
+  await this.updateBalance(user, 'cUSDC', usdcBalance + payout);
 
-      if (outcomeIdx === winningOutcome) {
-        // Winner: each share pays 1.0
-        payout += position.shares * 1.0;
-      }
-      // Losers: shares worth 0, no payout
+  // Emettre un event (sans reveler les montants)
+  emit PositionSettled(user, marketId);
+}
+```
 
-      // Clear position
-      userState.positions.delete(posKey);
-    }
+### Withdrawal Flow
 
-    if (payout > 0) {
-      userState.balance += payout;
-      updates.push({ userId, newEncryptedBalance: encrypt(userState.balance) });
-    }
+```typescript
+async function withdraw(user: address, encryptedAmount: bytes): Promise<void> {
+  // 1. Dechiffrer le montant demande
+  const amount = this.decrypt(encryptedAmount);
+
+  // 2. Verifier la balance
+  const balance = await this.decryptBalance(user, 'cUSDC');
+  if (balance < amount) {
+    throw new Error('INSUFFICIENT_BALANCE');
   }
 
-  return updates;
+  // 3. Bruler les cUSDC (update balance)
+  await this.updateBalance(user, 'cUSDC', balance - amount);
+
+  // 4. Transferer les USDC reels
+  // L'iApp appelle le contrat pour release les USDC
+  await cUsdcContract.releaseUSDC(user, amount);
 }
 ```
 
 ### Dispute Handling (Post-MVP)
 
-For hackathon: Trust iExec oracle result
-Future: UMA-style optimistic oracle with dispute period
+Pour le hackathon : Trust iExec oracle result
+Futur : UMA-style optimistic oracle avec periode de dispute
 
 ---
 
@@ -932,51 +1013,110 @@ Future: UMA-style optimistic oracle with dispute period
 | Component | Technology | Rationale |
 |-----------|------------|-----------|
 | Smart Contracts | Solidity 0.8.x | Standard, auditable |
-| L2 Chain | Arbitrum One | Largest ecosystem, iExec support |
+| L2 Chain | iExec Bellecour Sidechain | Native iExec TEE support |
 | TEE Runtime | iExec (Gramine) | Native integration, SDK |
-| Matching Engine | TypeScript | Fast iteration, iExec SDK support |
-| Order Book | PMT-native (@ethereumjs/trie) | Verifiable state, on-chain anchoring |
-| State Storage | PMT in TEE memory + IPFS snapshots | Fast matching, durable backups |
-| Merkle Proofs | @ethereumjs/trie | Battle-tested, Ethereum-compatible proofs |
-| Encryption | TweetNaCl | Audited, lightweight |
+| iApp Engine | TypeScript | Fast iteration, iExec SDK support |
+| Encryption | TweetNaCl (NaCl) | Battle-tested, simple, secure |
+| Key Exchange | X25519 (Curve25519) | Fast, secure ECDH |
+| Symmetric Cipher | XSalsa20-Poly1305 | Authenticated encryption |
 | Oracle | iExec Native Oracle | Tight integration |
 | Frontend | React + Viem | Standard Web3 stack |
 
-### PMT Library Selection
-
-Using `@ethereumjs/trie` for the Patricia Merkle Trie implementation:
+### NaCl Encryption Integration (MVP)
 
 ```typescript
-// Installation
-npm install @ethereumjs/trie @ethereumjs/util
+import nacl from 'tweetnacl';
 
-// Usage in TEE
-import { Trie } from '@ethereumjs/trie';
-import { bytesToHex, hexToBytes } from '@ethereumjs/util';
+// ============================================================
+// Balance Encryption (Symmetric - secretbox)
+// ============================================================
 
-const trie = new Trie();
+function encryptBalance(value: bigint, sealedKey: Uint8Array): EncryptedBalance {
+  // Generate fresh randomness for this encryption
+  const randomness = nacl.randomBytes(32);
 
-// Put order
-await trie.put(
-  Buffer.from(orderKey),
-  Buffer.from(JSON.stringify(orderValue))
-);
+  // Create payload with value + randomness + timestamp
+  const payload = JSON.stringify({
+    value: value.toString(),
+    r: bytesToHex(randomness),
+    timestamp: Date.now(),
+  });
 
-// Get root for on-chain commit
-const root = bytesToHex(trie.root());
+  // Encrypt with sealed key (XSalsa20-Poly1305)
+  const nonce = nacl.randomBytes(24);
+  const encrypted = nacl.secretbox(payload, nonce, sealedKey);
 
-// Generate proof for user verification
-const proof = await trie.createProof(Buffer.from(orderKey));
+  // Create commitment structure (hash-based for on-chain ID)
+  const hash = nacl.hash(encrypted);
 
-// Verify proof (can be done client-side)
-const value = await Trie.verifyProof(trie.root(), Buffer.from(orderKey), proof);
+  return {
+    commitment: { x: hash.slice(0, 32), y: hash.slice(32, 64) },
+    encryptedRandomness: nonce + encrypted,
+  };
+}
+
+function decryptBalance(encrypted: EncryptedBalance, sealedKey: Uint8Array): bigint {
+  const nonce = encrypted.encryptedRandomness.slice(0, 24);
+  const ciphertext = encrypted.encryptedRandomness.slice(24);
+
+  const decrypted = nacl.secretbox.open(ciphertext, nonce, sealedKey);
+  const payload = JSON.parse(decrypted);
+
+  return BigInt(payload.value);
+}
+
+// ============================================================
+// Order Encryption (Asymmetric - box)
+// ============================================================
+
+function encryptOrder(order: OrderPayload, teePublicKey: Uint8Array, userSecretKey: Uint8Array): Uint8Array {
+  const nonce = nacl.randomBytes(24);
+  const message = JSON.stringify(order);
+
+  // X25519 key exchange + XSalsa20-Poly1305
+  const encrypted = nacl.box(message, nonce, teePublicKey, userSecretKey);
+
+  return concat(nonce, encrypted);
+}
+
+function decryptOrder(encrypted: Uint8Array, userPublicKey: Uint8Array, teeSecretKey: Uint8Array): OrderPayload {
+  const nonce = encrypted.slice(0, 24);
+  const ciphertext = encrypted.slice(24);
+
+  const decrypted = nacl.box.open(ciphertext, nonce, userPublicKey, teeSecretKey);
+
+  return JSON.parse(decrypted);
+}
 ```
 
-**Why @ethereumjs/trie:**
-- Ethereum-native proof format (compatible with on-chain verification)
-- Well-maintained, used in production
-- Supports streaming iteration (efficient for order matching)
-- TypeScript native (matches TEE stack)
+> **Future (Post-MVP)**: Migration possible vers Pedersen commitments (secp256k1) avec Bulletproofs pour:
+> - Verification sans TEE (trustless)
+> - Operations homomorphes sur balances chiffrees
+> - Zero-knowledge proofs de solvabilite
+
+### iApp iExec Integration
+
+Reference: [nocturne-protocol/iapp_iexec](https://github.com/nocturne-protocol/iapp_iexec)
+
+```typescript
+// Dans l'iApp TEE
+import { IExec } from 'iexec';
+
+async function processConfidentialTransfer(taskId: string) {
+  // 1. Recuperer les inputs chiffres depuis IPFS
+  const inputs = await iexec.task.fetchResults(taskId);
+
+  // 2. Dechiffrer avec la cle scellee
+  const decrypted = decrypt(inputs, sealedPrivateKey);
+
+  // 3. Executer la logique (swap, transfer, etc.)
+  const result = await executeLogic(decrypted);
+
+  // 4. Re-chiffrer et soumettre le resultat
+  const encryptedResult = encrypt(result, publicKey);
+  await submitResult(encryptedResult);
+}
+```
 
 ---
 
@@ -986,45 +1126,46 @@ const value = await Trie.verifyProof(trie.root(), Buffer.from(orderKey), proof);
 
 | Day | Task | Deliverable |
 |-----|------|-------------|
-| 1-2 | iExec TEE setup | Hello world in enclave, SDK familiarity |
-| 2 | Fork Nocturne contracts | Private token on Arbitrum testnet |
-| 3 | MarketFactory + StateAnchor | Create markets, commit PMT roots on-chain |
-| 4 | OrderQueue contract | Submit encrypted orders, emit events |
-| 5 | PMT order book scaffold | @ethereumjs/trie setup, key encoding |
-| 6 | TEE order decryption + PMT insert | Receive events, decrypt, add to trie |
-| 7 | PMT matching algorithm | Match orders, commit root after each match |
+| 1-2 | iExec TEE setup | Hello world dans l'enclave, SDK familiarity |
+| 2 | Fork Nocturne contracts | ConfidentialERC20 (cUSDC) sur Bellecour |
+| 3 | MarketFactory contract | Creation de marches binaires (cYES/cNO) |
+| 4 | iApp scaffold | Skeleton iApp pour transferts confidentiels |
+| 5 | Deposit/Withdraw flow | USDC -> cUSDC et inverse |
+| 6 | AMM logic dans l'iApp | Constant product swap cUSDC <-> cYES/cNO |
+| 7 | Integration tests | Flow complet deposit -> swap -> check balance |
 
 ### Week 2: Completion
 
 | Day | Task | Deliverable |
 |-----|------|-------------|
-| 8 | Position tracking in PMT | Track shares, P&L as PMT entries |
-| 9 | Proof generation API | /proof/order, /proof/position endpoints |
-| 10 | Oracle integration | iExec oracle for market resolution |
-| 11 | Settlement flow | Resolve market, update balances via PMT |
-| 12 | Client proof verification | SDK for verifying proofs against on-chain root |
-| 13 | Simple CLI demo | Place bet, verify order proof, settlement |
+| 8 | Prix indicatif API | Endpoint pour recuperer P(YES), P(NO) |
+| 9 | Oracle integration | iExec oracle pour resolution |
+| 10 | Settlement flow | Redeem tokens gagnants -> cUSDC |
+| 11 | Withdrawal complete | cUSDC -> USDC avec verification TEE |
+| 12 | Simple CLI demo | Deposit, buy cYES, resolution, withdraw |
+| 13 | Frontend basique | Interface React pour interagir |
 | 14 | Polish & documentation | Demo script, README, video |
 
 ### MVP Scope
 
 **Included:**
-- Single categorical market (2-10 outcomes)
-- Sports/esports demo market
-- Limit orders (buy/sell)
-- Encrypted order submission
-- Private positions
-- PMT-native order book with on-chain root commits
-- Merkle proof generation for order/position verification
+- Single binary market (YES/NO)
+- Confidential tokens: cUSDC, cYES, cNO
+- AMM-based pricing (constant product)
+- Deposit USDC -> cUSDC
+- Buy/Sell cYES et cNO via AMM
+- Prix indicatif public (sans volumes)
 - Market resolution via oracle
-- Private settlement
+- Settlement confidentiel
+- Withdraw cUSDC -> USDC
 
 **Excluded (Post-Hackathon):**
 - Multiple concurrent markets
-- Market orders
-- Partial fills UI
-- Advanced order types (stop-loss, etc.)
-- Historical proof queries (only current state proofs)
+- Order book (alternative a l'AMM)
+- Liquidity Provider tokens
+- Multiple outcomes (>2)
+- Historical price charts
+- Viewing keys pour users
 - Liquidity mining
 - Governance
 - Mobile app
@@ -1204,25 +1345,45 @@ event StateUpdated(uint256 indexed version, bytes32 indexed newRoot, bytes32 ind
 ## Open Questions
 
 ### Resolved
-- Market type: Categorical (up to 10 outcomes)
-- Privacy approach: Single TEE (tokens + matching)
-- Trading mechanism: Per-outcome order books
-- Chain: Arbitrum
+- Market type: Binary (YES/NO) pour MVP
+- Privacy approach: Confidential ERC20 avec NaCl encryption (TweetNaCl)
+- Trading mechanism: AMM (constant product)
+- Chain: iExec Bellecour
 - Oracle: iExec native
+- Encryption: NaCl (secretbox pour balances, box pour ordres) - simple et battle-tested
 
-### To Investigate
-1. **iExec callback pattern**: Exact mechanism for TEE → contract calls
-2. **Nocturne fork requirements**: What modifications needed for our use case
-3. **Cross-chain deposits**: LayerZero integration complexity
-4. **Gas sponsorship**: Who pays for TEE callbacks?
-5. **Latency benchmarks**: Expected order processing time
+### Questions Cles a Resoudre
+
+1. **Comment determiner le prix spot quand les positions sont invisibles ?**
+   - Solution MVP: AMM avec prix derive des reserves (dans le TEE)
+   - Le TEE publie le prix indicatif sans reveler les volumes
+   - Voir section "Price Discovery Challenge"
+
+2. **Comment gerer les transferts confidentiels ?**
+   - Chaque transfert trigger une iApp
+   - L'iApp dechiffre, calcule, re-chiffre
+   - Reference: https://github.com/nocturne-protocol/iapp_iexec
+
+3. **Ou est stockee la sealed key ?**
+   - Cle symetrique 32 bytes scellee dans l'enclave TEE (SGX sealing)
+   - Jamais exposee, meme aux operateurs
+   - Utilisee pour secretbox (balances) et comme secret key pour box (ordres)
+
+4. **Gas sponsorship**: Qui paie pour l'execution des iApps ?
+   - MVP: Protocol treasury
+   - Future: Inclus dans les frais de trading
+
+5. **Latency**: Temps d'execution d'une iApp ?
+   - A benchmarker avec iExec
 
 ### Future Considerations
-1. Multi-market support and cross-market positions
-2. AMM mode for low-liquidity markets
-3. Governance token and fee sharing
-4. Mobile-friendly key management
-5. Regulatory compliance options
+1. Multi-market support
+2. Order book comme alternative a l'AMM
+3. Viewing keys pour que les users verifient leur balance sans le TEE
+4. Liquidity Provider tokens
+5. Governance token et fee sharing
+6. Cross-chain deposits (LayerZero)
+7. Migration vers Pedersen commitments + Bulletproofs (verification trustless sans TEE)
 
 ---
 
@@ -1230,179 +1391,162 @@ event StateUpdated(uint256 indexed version, bytes32 indexed newRoot, bytes32 ind
 
 | Term | Definition |
 |------|------------|
-| TEE | Trusted Execution Environment - isolated compute enclave |
-| MPT | Merkle Patricia Trie - verifiable key-value store |
-| Outcome | One possible result of a prediction market |
-| Share | Unit of ownership in an outcome (pays 1.0 if wins, 0 if loses) |
-| Spread | Difference between best bid and best ask prices |
-| Resolution | Process of determining winning outcome |
-| Settlement | Process of paying out winners |
-| Attestation | Cryptographic proof of TEE integrity |
+| TEE | Trusted Execution Environment - enclave de calcul isolee |
+| Confidential Token | ERC20 avec balances chiffrees via NaCl |
+| cUSDC | Confidential USDC - version privee de l'USDC |
+| cYES | Token confidentiel representant une position "YES" |
+| cNO | Token confidentiel representant une position "NO" |
+| iApp | Application iExec executee dans le TEE |
+| NaCl | Networking and Cryptography Library (TweetNaCl en JS) |
+| X25519 | Elliptic curve Diffie-Hellman sur Curve25519 |
+| XSalsa20-Poly1305 | Cipher stream + MAC pour authenticated encryption |
+| Secretbox | Chiffrement symetrique NaCl (pour balances) |
+| Box | Chiffrement asymetrique NaCl (pour ordres user-TEE) |
+| Sealed Key | Cle symetrique scellee dans l'enclave, inaccessible de l'exterieur |
+| AMM | Automated Market Maker - market maker automatise |
+| Constant Product | Formule x * y = k utilisee par les AMM (Uniswap-style) |
+| Resolution | Processus de determination du resultat (YES ou NO) |
+| Settlement | Processus de paiement des gagnants |
+| Attestation | Preuve cryptographique de l'integrite du TEE |
 
 ---
 
 ## Sequence Diagrams
 
-### Order Submission & Matching Flow
+### Deposit Flow (USDC -> cUSDC)
 
 ```
-┌──────┐          ┌──────────┐         ┌─────┐          ┌───────────┐
-│ User │          │OrderQueue│         │ TEE │          │StateAnchor│
-└──┬───┘          └────┬─────┘         └──┬──┘          └─────┬─────┘
-   │                   │                  │                   │
-   │ 1. Encrypt order  │                  │                   │
-   │ with TEE pubkey   │                  │                   │
-   │                   │                  │                   │
-   │ 2. submitOrder()  │                  │                   │
-   │──────────────────>│                  │                   │
-   │                   │                  │                   │
-   │                   │ 3. emit          │                   │
-   │                   │ OrderSubmitted   │                   │
-   │                   │─────────────────>│                   │
-   │                   │                  │                   │
-   │                   │                  │ 4. Decrypt order  │
-   │                   │                  │ 5. Validate       │
-   │                   │                  │ 6. Match in PMT   │
-   │                   │                  │ 7. Update state   │
-   │                   │                  │                   │
-   │                   │                  │ 8. commitRoot()   │
-   │                   │                  │──────────────────>│
-   │                   │                  │                   │
-   │                   │                  │                   │ 9. Store root
-   │                   │                  │                   │ 10. emit
-   │                   │                  │                   │ StateUpdated
-   │                   │                  │<──────────────────│
-   │                   │                  │                   │
-   │ 11. Get encrypted │                  │                   │
-   │ execution result  │                  │                   │
-   │<─────────────────────────────────────│                   │
-   │                   │                  │                   │
-   │ 12. Decrypt with  │                  │                   │
-   │ user private key  │                  │                   │
-   │                   │                  │                   │
+┌──────┐          ┌──────────────┐         ┌─────────┐
+│ User │          │ cUSDC Contract│         │ iApp TEE│
+└──┬───┘          └──────┬───────┘         └────┬────┘
+   │                     │                      │
+   │ 1. approve(USDC)    │                      │
+   │────────────────────>│                      │
+   │                     │                      │
+   │ 2. deposit(100 USDC)│                      │
+   │────────────────────>│                      │
+   │                     │                      │
+   │                     │ 3. Transfer USDC     │
+   │                     │ 4. emit DepositReq   │
+   │                     │─────────────────────>│
+   │                     │                      │
+   │                     │                      │ 5. Decrypt current
+   │                     │                      │    user balance
+   │                     │                      │ 6. Add 100 to balance
+   │                     │                      │ 7. Re-encrypt balance
+   │                     │                      │
+   │                     │ 8. updateBalance()   │
+   │                     │<─────────────────────│
+   │                     │                      │
+   │ 9. Balance updated  │                      │
+   │ (chiffree on-chain) │                      │
+   │                     │                      │
 ```
 
-### Proof Verification Flow
+### Buy cYES Flow (AMM Swap)
 
 ```
-┌──────┐          ┌─────┐          ┌───────────┐
-│ User │          │ TEE │          │StateAnchor│
-└──┬───┘          └──┬──┘          └─────┬─────┘
-   │                 │                   │
-   │ 1. GET /proof/  │                   │
-   │ order/{orderId} │                   │
-   │────────────────>│                   │
-   │                 │                   │
-   │                 │ 2. Generate       │
-   │                 │ Merkle proof      │
-   │                 │                   │
-   │ 3. Return proof │                   │
-   │ + root + value  │                   │
-   │<────────────────│                   │
-   │                 │                   │
-   │ 4. Query currentRoot               │
-   │─────────────────────────────────────>
-   │                 │                   │
-   │ 5. Return on-chain root            │
-   │<─────────────────────────────────────
-   │                 │                   │
-   │ 6. Compare roots│                   │
-   │ 7. Verify proof │                   │
-   │ locally (client)│                   │
-   │                 │                   │
-   │ [VERIFIED or    │                   │
-   │  INVALID]       │                   │
-   │                 │                   │
+┌──────┐       ┌────────────────┐       ┌─────────┐       ┌───────────┐
+│ User │       │PredictionMarket│       │ iApp TEE│       │cYES Contract│
+└──┬───┘       └───────┬────────┘       └────┬────┘       └─────┬─────┘
+   │                   │                     │                  │
+   │ 1. buy(YES,       │                     │                  │
+   │    encryptedAmt)  │                     │                  │
+   │──────────────────>│                     │                  │
+   │                   │                     │                  │
+   │                   │ 2. emit BuyRequested│                  │
+   │                   │────────────────────>│                  │
+   │                   │                     │                  │
+   │                   │                     │ 3. Decrypt amount│
+   │                   │                     │ 4. Check cUSDC   │
+   │                   │                     │    balance       │
+   │                   │                     │ 5. Calculate AMM │
+   │                   │                     │    (constant     │
+   │                   │                     │    product)      │
+   │                   │                     │ 6. Update        │
+   │                   │                     │    reserves      │
+   │                   │                     │                  │
+   │                   │ 7. updateBalance    │                  │
+   │                   │ (cUSDC: -amount)    │                  │
+   │                   │<────────────────────│                  │
+   │                   │                     │                  │
+   │                   │                     │ 8. updateBalance │
+   │                   │                     │ (cYES: +tokens)  │
+   │                   │                     │─────────────────>│
+   │                   │                     │                  │
+   │ 9. Swap complete  │                     │                  │
+   │ (balances updated)│                     │                  │
+   │                   │                     │                  │
 ```
 
 ### Market Resolution & Settlement Flow
 
 ```
-┌────────┐     ┌─────────────┐     ┌─────┐     ┌────────────┐     ┌───────────┐
-│ Oracle │     │MarketFactory│     │ TEE │     │PrivateToken│     │StateAnchor│
-└───┬────┘     └──────┬──────┘     └──┬──┘     └─────┬──────┘     └─────┬─────┘
-    │                 │               │              │                  │
-    │ 1. Resolution   │               │              │                  │
-    │ time reached    │               │              │                  │
-    │                 │               │              │                  │
-    │ 2. Fetch result │               │              │                  │
-    │ from source     │               │              │                  │
-    │                 │               │              │                  │
-    │ 3. Submit result│               │              │                  │
-    │ to TEE with     │               │              │                  │
-    │ attestation     │               │              │                  │
-    │────────────────────────────────>│              │                  │
-    │                 │               │              │                  │
-    │                 │               │ 4. Verify    │                  │
-    │                 │               │ attestation  │                  │
-    │                 │               │              │                  │
-    │                 │               │ 5. Calculate │                  │
-    │                 │               │ all payouts  │                  │
-    │                 │               │ in PMT       │                  │
-    │                 │               │              │                  │
-    │                 │               │ 6. Clear     │                  │
-    │                 │               │ positions    │                  │
-    │                 │               │              │                  │
-    │                 │               │ 7. Update    │                  │
-    │                 │               │ balances     │                  │
-    │                 │               │              │                  │
-    │                 │               │ 8. batchUpdateBalances()        │
-    │                 │               │─────────────>│                  │
-    │                 │               │              │                  │
-    │                 │               │ 9. commitRoot()                 │
-    │                 │               │─────────────────────────────────>
-    │                 │               │              │                  │
-    │                 │ 10. resolveMarket()         │                  │
-    │                 │<──────────────│              │                  │
-    │                 │               │              │                  │
-    │                 │ 11. emit      │              │                  │
-    │                 │ MarketResolved│              │                  │
-    │                 │               │              │                  │
+┌────────┐     ┌─────────────┐     ┌─────────┐     ┌──────────────┐
+│ Oracle │     │MarketFactory│     │ iApp TEE│     │cYES/cNO/cUSDC│
+└───┬────┘     └──────┬──────┘     └────┬────┘     └──────┬───────┘
+    │                 │                 │                 │
+    │ 1. Resolution   │                 │                 │
+    │ time reached    │                 │                 │
+    │                 │                 │                 │
+    │ 2. resolveMarket│                 │                 │
+    │ (outcome=YES)   │                 │                 │
+    │────────────────>│                 │                 │
+    │                 │                 │                 │
+    │                 │ 3. emit         │                 │
+    │                 │ MarketResolved  │                 │
+    │                 │                 │                 │
+    │                 │                 │                 │
+    │      === User calls redeem() === │                 │
+    │                 │                 │                 │
+    │                 │ 4. RedeemReq    │                 │
+    │                 │────────────────>│                 │
+    │                 │                 │                 │
+    │                 │                 │ 5. Decrypt cYES │
+    │                 │                 │    balance      │
+    │                 │                 │ 6. cYES -> cUSDC│
+    │                 │                 │    (1:1)        │
+    │                 │                 │ 7. Clear cYES   │
+    │                 │                 │    balance      │
+    │                 │                 │                 │
+    │                 │                 │ 8. updateBalance│
+    │                 │                 │ (all tokens)    │
+    │                 │                 │────────────────>│
+    │                 │                 │                 │
+    │                 │ 9. Settlement   │                 │
+    │                 │ complete        │                 │
+    │                 │                 │                 │
 ```
 
-### Deposit & Withdrawal Flow
+### Withdrawal Flow (cUSDC -> USDC)
 
 ```
-┌──────┐          ┌────────────┐         ┌─────┐          ┌───────────┐
-│ User │          │PrivateToken│         │ TEE │          │StateAnchor│
-└──┬───┘          └─────┬──────┘         └──┬──┘          └─────┬─────┘
-   │                    │                   │                   │
-   │ === DEPOSIT ===    │                   │                   │
-   │                    │                   │                   │
-   │ 1. deposit(100 USDC)                   │                   │
-   │───────────────────>│                   │                   │
-   │                    │                   │                   │
-   │                    │ 2. Transfer USDC  │                   │
-   │                    │ 3. emit Deposit   │                   │
-   │                    │──────────────────>│                   │
-   │                    │                   │                   │
-   │                    │                   │ 4. Update user    │
-   │                    │                   │ balance in PMT    │
-   │                    │                   │                   │
-   │                    │                   │ 5. commitRoot()   │
-   │                    │                   │──────────────────>│
-   │                    │                   │                   │
-   │                    │                   │                   │
-   │ === WITHDRAWAL === │                   │                   │
-   │                    │                   │                   │
-   │ 6. Request withdrawal                  │                   │
-   │ (encrypted amount) │                   │                   │
-   │───────────────────────────────────────>│                   │
-   │                    │                   │                   │
-   │                    │                   │ 7. Verify balance │
-   │                    │                   │ 8. Deduct from PMT│
-   │                    │                   │ 9. Generate proof │
-   │                    │                   │                   │
-   │                    │                   │ 10. commitRoot()  │
-   │                    │                   │──────────────────>│
-   │                    │                   │                   │
-   │                    │ 11. Process       │                   │
-   │                    │ withdrawal        │                   │
-   │                    │<──────────────────│                   │
-   │                    │                   │                   │
-   │ 12. Receive USDC   │                   │                   │
-   │<───────────────────│                   │                   │
-   │                    │                   │                   │
+┌──────┐          ┌──────────────┐         ┌─────────┐
+│ User │          │ cUSDC Contract│         │ iApp TEE│
+└──┬───┘          └──────┬───────┘         └────┬────┘
+   │                     │                      │
+   │ 1. withdraw(        │                      │
+   │    encryptedAmount) │                      │
+   │────────────────────>│                      │
+   │                     │                      │
+   │                     │ 2. emit WithdrawReq  │
+   │                     │─────────────────────>│
+   │                     │                      │
+   │                     │                      │ 3. Decrypt amount
+   │                     │                      │ 4. Verify balance
+   │                     │                      │    >= amount
+   │                     │                      │ 5. Deduct from
+   │                     │                      │    encrypted balance
+   │                     │                      │
+   │                     │ 6. updateBalance()   │
+   │                     │<─────────────────────│
+   │                     │                      │
+   │                     │ 7. releaseUSDC()     │
+   │                     │<─────────────────────│
+   │                     │                      │
+   │ 8. Receive USDC     │                      │
+   │<────────────────────│                      │
+   │                     │                      │
 ```
 
 ---
@@ -1413,372 +1557,105 @@ event StateUpdated(uint256 indexed version, bytes32 indexed newRoot, bytes32 ind
 
 | Category | Severity | Examples |
 |----------|----------|----------|
-| User Error | Low | Invalid price, insufficient balance, bad signature |
-| Network Error | Medium | RPC failure, event missed, tx reverted |
+| User Error | Low | Insufficient balance, invalid amount |
+| iApp Error | Medium | Decryption failure, computation error |
 | TEE Error | High | Enclave crash, attestation failure |
-| State Error | Critical | PMT corruption, root mismatch |
+| Contract Error | Critical | Balance update failed |
 
 ### User Errors
 
-#### Invalid Order Parameters
-```typescript
-// Validation in TEE after decryption
-function validateOrder(order: OrderPayload): ValidationResult {
-  const errors: string[] = [];
-
-  // Price bounds
-  if (order.price < 0.01 || order.price > 0.99) {
-    errors.push('INVALID_PRICE: Must be between 0.01 and 0.99');
-  }
-
-  // Amount bounds
-  if (order.amount <= 0) {
-    errors.push('INVALID_AMOUNT: Must be positive');
-  }
-
-  // Outcome exists
-  if (order.outcomeIndex >= market.outcomes.length) {
-    errors.push('INVALID_OUTCOME: Outcome index out of bounds');
-  }
-
-  // Market is open
-  if (market.resolved || Date.now() > market.resolutionTime) {
-    errors.push('MARKET_CLOSED: Cannot place orders on resolved/expired market');
-  }
-
-  return { valid: errors.length === 0, errors };
-}
-
-// Response to user (encrypted)
-{
-  status: 'REJECTED',
-  errors: ['INVALID_PRICE: Must be between 0.01 and 0.99'],
-  orderId: null
-}
-```
-
 #### Insufficient Balance
 ```typescript
-// Before placing order, check balance in PMT
-async function checkBalance(userId: string, requiredAmount: number): Promise<boolean> {
-  const balanceKey = `user:${userId}:balance`;
-  const balanceData = await trie.get(Buffer.from(balanceKey));
+// Dans l'iApp, apres dechiffrement
+async function validateTransfer(user: address, amount: bigint, token: string): Promise<void> {
+  const balance = await this.decryptBalance(user, token);
 
-  if (!balanceData) return false;
-
-  const balance = JSON.parse(balanceData.toString());
-  return balance.available >= requiredAmount;
-}
-
-// Error response
-{
-  status: 'REJECTED',
-  errors: ['INSUFFICIENT_BALANCE: Required 100, available 50'],
-  orderId: null
+  if (balance < amount) {
+    throw new Error(`INSUFFICIENT_BALANCE: Required ${amount}, available ${balance}`);
+  }
 }
 ```
 
-#### Invalid Signature
+#### Invalid Amount
 ```typescript
-// Verify signature before processing
-function verifyOrderSignature(order: EncryptedOrder): boolean {
-  const message = keccak256(
-    encodePacked(order.marketId, order.encryptedPayload, order.timestamp)
-  );
-  const recoveredAddress = recoverAddress(message, order.signature);
-  return recoveredAddress === order.user;
-}
+// Validation des montants
+function validateAmount(amount: bigint): void {
+  if (amount <= 0n) {
+    throw new Error('INVALID_AMOUNT: Must be positive');
+  }
 
-// Rejection (not encrypted - can't identify user)
-// Simply drop the order, emit no event
+  if (amount > MAX_AMOUNT) {
+    throw new Error('INVALID_AMOUNT: Exceeds maximum');
+  }
+}
 ```
 
-### Network Errors
+### iApp Recovery
 
-#### Missed Events (TEE didn't see order submission)
+#### Missed Events
 ```typescript
-// Recovery: Periodic sync from contract state
-async function syncMissedOrders(): Promise<void> {
+// Recovery: Periodic sync from contract events
+async function syncMissedEvents(): Promise<void> {
   const lastProcessedBlock = await getLastProcessedBlock();
   const currentBlock = await provider.getBlockNumber();
 
-  // Query historical events
-  const events = await orderQueue.queryFilter(
-    orderQueue.filters.OrderSubmitted(),
+  const events = await contract.queryFilter(
+    contract.filters.TransferRequested(),
     lastProcessedBlock + 1,
     currentBlock
   );
 
   for (const event of events) {
-    if (!await isOrderProcessed(event.args.orderId)) {
-      await processOrder(event.args);
+    if (!await isEventProcessed(event.transactionHash)) {
+      await processEvent(event);
     }
   }
 
   await setLastProcessedBlock(currentBlock);
 }
-
-// Run on TEE startup and periodically
-setInterval(syncMissedOrders, 60_000); // Every minute
 ```
 
-#### Root Commit Transaction Failure
+#### TEE Crash Recovery
 ```typescript
-// Retry logic with exponential backoff
-async function commitRootWithRetry(
-  newRoot: string,
-  matchId: string,
-  maxRetries: number = 3
-): Promise<void> {
-  let attempt = 0;
-  let lastError: Error;
+// L'etat est on-chain (balances chiffrees)
+// Seules les reserves AMM sont dans le TEE
+async function recoverAMMState(): Promise<void> {
+  // 1. Lire les reserves depuis un backup chiffre (IPFS ou on-chain)
+  const encryptedReserves = await getBackupReserves();
 
-  while (attempt < maxRetries) {
-    try {
-      const tx = await stateAnchor.commitRoot(newRoot, matchId, attestation);
-      await tx.wait(2); // Wait for 2 confirmations
-      return;
-    } catch (error) {
-      lastError = error;
-      attempt++;
-      await sleep(1000 * Math.pow(2, attempt)); // Exponential backoff
-    }
-  }
+  // 2. Dechiffrer avec la sealed key
+  const reserves = await decryptWithSealedKey(encryptedReserves);
 
-  // After max retries, enter recovery mode
-  await enterRecoveryMode('ROOT_COMMIT_FAILED', lastError);
+  // 3. Restaurer l'etat AMM
+  this.reserveUSDC = reserves.usdc;
+  this.reserveYES = reserves.yes;
+  this.reserveNO = reserves.no;
+
+  // 4. Recalculer les constantes k
+  this.kYES = this.reserveUSDC * this.reserveYES;
+  this.kNO = this.reserveUSDC * this.reserveNO;
 }
 ```
 
-#### RPC Node Failure
-```typescript
-// Multiple RPC endpoints with fallback
-const RPC_ENDPOINTS = [
-  'https://arb1.arbitrum.io/rpc',
-  'https://arbitrum-one.public.blastapi.io',
-  'https://rpc.ankr.com/arbitrum',
-];
-
-async function getProvider(): Promise<Provider> {
-  for (const endpoint of RPC_ENDPOINTS) {
-    try {
-      const provider = new JsonRpcProvider(endpoint);
-      await provider.getBlockNumber(); // Health check
-      return provider;
-    } catch {
-      continue;
-    }
-  }
-  throw new Error('ALL_RPC_ENDPOINTS_FAILED');
-}
-```
-
-### TEE Errors
-
-#### Enclave Crash / Restart
-```typescript
-// State recovery from on-chain root + IPFS snapshot
-async function recoverState(): Promise<void> {
-  // 1. Get latest committed root from chain
-  const onChainRoot = await stateAnchor.currentRoot();
-  const stateVersion = await stateAnchor.stateVersion();
-
-  // 2. Fetch state snapshot from IPFS
-  const snapshotCid = await getSnapshotCid(stateVersion);
-  const encryptedSnapshot = await ipfs.get(snapshotCid);
-
-  // 3. Decrypt snapshot with sealed key
-  const snapshot = await decryptWithSealedKey(encryptedSnapshot);
-
-  // 4. Rebuild trie from snapshot
-  trie = await Trie.create({ root: hexToBytes(onChainRoot) });
-  await trie.fromSnapshot(snapshot);
-
-  // 5. Verify root matches
-  if (bytesToHex(trie.root()) !== onChainRoot) {
-    throw new Error('STATE_RECOVERY_FAILED: Root mismatch');
-  }
-
-  // 6. Replay any events since snapshot
-  await syncMissedOrders();
-
-  console.log(`State recovered at version ${stateVersion}`);
-}
-```
-
-#### Attestation Failure
-```typescript
-// If TEE can't generate valid attestation
-async function handleAttestationFailure(): Promise<void> {
-  // 1. Log the failure (encrypted log)
-  await logSecure('ATTESTATION_FAILURE', { timestamp: Date.now() });
-
-  // 2. Pause new order processing
-  await pauseOrderProcessing();
-
-  // 3. Alert operators
-  await notifyOperators('TEE_ATTESTATION_FAILURE');
-
-  // 4. Attempt re-attestation after delay
-  await sleep(30_000);
-  const newAttestation = await generateAttestation();
-
-  if (newAttestation.valid) {
-    await resumeOrderProcessing();
-  } else {
-    // Requires manual intervention
-    await enterMaintenanceMode();
-  }
-}
-```
-
-### State Errors
-
-#### PMT Root Mismatch (TEE vs On-Chain)
-```typescript
-// Detected during proof generation or periodic check
-async function verifyStateConsistency(): Promise<boolean> {
-  const teeRoot = bytesToHex(trie.root());
-  const chainRoot = await stateAnchor.currentRoot();
-
-  if (teeRoot !== chainRoot) {
-    // CRITICAL: State divergence
-    await logSecure('STATE_DIVERGENCE', {
-      teeRoot,
-      chainRoot,
-      teeVersion: currentVersion,
-      chainVersion: await stateAnchor.stateVersion(),
-    });
-
-    // Attempt recovery from chain state
-    await recoverState();
-
-    return false;
-  }
-
-  return true;
-}
-
-// Run after every root commit and periodically
-```
-
-#### PMT Corruption
-```typescript
-// Detected when trie operations fail
-async function handleTrieCorruption(error: Error): Promise<void> {
-  await logSecure('TRIE_CORRUPTION', { error: error.message });
-
-  // 1. Stop all order processing
-  await pauseOrderProcessing();
-
-  // 2. Get last known good root from chain
-  const lastGoodVersion = await findLastGoodVersion();
-  const lastGoodRoot = await stateAnchor.getRootAtVersion(lastGoodVersion);
-
-  // 3. Rebuild from snapshot
-  const snapshot = await getSnapshotAtVersion(lastGoodVersion);
-  trie = await Trie.create({ root: hexToBytes(lastGoodRoot) });
-  await trie.fromSnapshot(snapshot);
-
-  // 4. Replay events from lastGoodVersion to current
-  await replayEventsFromVersion(lastGoodVersion);
-
-  // 5. Resume if successful
-  await resumeOrderProcessing();
-}
-```
-
-### Recovery Procedures
-
-#### Full State Recovery Procedure
-```
-1. DETECT: Identify state inconsistency or corruption
-2. PAUSE: Stop all order processing, emit SystemPaused event
-3. FETCH: Get latest committed root from StateAnchor
-4. RESTORE: Load encrypted snapshot from IPFS
-5. DECRYPT: Use sealed enclave key to decrypt snapshot
-6. REBUILD: Reconstruct PMT from snapshot data
-7. VERIFY: Confirm rebuilt root matches on-chain root
-8. REPLAY: Process any events between snapshot and current block
-9. VALIDATE: Run consistency checks on recovered state
-10. RESUME: Re-enable order processing, emit SystemResumed
-```
-
-#### Graceful Degradation Modes
+### Graceful Degradation
 
 | Mode | Trigger | Behavior |
 |------|---------|----------|
-| Normal | All systems operational | Full functionality |
-| Read-Only | Root commit failing | Accept orders, delay commits |
-| Paused | TEE error | Queue orders, don't process |
+| Normal | All systems OK | Full functionality |
+| Paused | TEE error | Reject new swaps, allow withdrawals |
 | Maintenance | Critical failure | Reject all operations |
 
-```typescript
-enum SystemMode {
-  NORMAL = 'NORMAL',
-  READ_ONLY = 'READ_ONLY',
-  PAUSED = 'PAUSED',
-  MAINTENANCE = 'MAINTENANCE',
-}
-
-async function handleSystemMode(mode: SystemMode): Promise<void> {
-  switch (mode) {
-    case SystemMode.READ_ONLY:
-      // Process orders but queue root commits
-      await queueRootCommits();
-      break;
-
-    case SystemMode.PAUSED:
-      // Queue incoming orders, don't match
-      await enableOrderQueue();
-      await disableMatching();
-      break;
-
-    case SystemMode.MAINTENANCE:
-      // Reject everything
-      await rejectAllRequests('SYSTEM_MAINTENANCE');
-      break;
-  }
-
-  // Emit mode change event for monitoring
-  await emitSystemModeChange(mode);
-}
-```
-
 ### Error Response Format
-
-All API errors follow a consistent format:
 
 ```typescript
 interface ErrorResponse {
   success: false;
   error: {
-    code: string;           // Machine-readable code
-    message: string;        // Human-readable message
-    details?: object;       // Additional context
+    code: string;           // INSUFFICIENT_BALANCE, INVALID_AMOUNT, etc.
+    message: string;        // Human-readable
     recoverable: boolean;   // Can user retry?
-    suggestedAction?: string;
   };
-  requestId: string;        // For support/debugging
   timestamp: number;
-}
-
-// Example
-{
-  success: false,
-  error: {
-    code: 'INSUFFICIENT_BALANCE',
-    message: 'Not enough balance to place this order',
-    details: {
-      required: 100,
-      available: 50,
-      currency: 'USDC'
-    },
-    recoverable: true,
-    suggestedAction: 'Deposit more funds or reduce order size'
-  },
-  requestId: 'req_abc123',
-  timestamp: 1706400000000
 }
 ```
 
@@ -1787,8 +1664,13 @@ interface ErrorResponse {
 ## References
 
 - [iExec Documentation](https://docs.iex.ec/)
-- [Nocturne Private Token](https://github.com/nocturne-protocol/private-token-contract)
+- [TweetNaCl.js](https://tweetnacl.js.org/) - NaCl crypto library for JavaScript
+- [NaCl: Networking and Cryptography Library](https://nacl.cr.yp.to/) - Original NaCl by Daniel Bernstein
 - [Polymarket Architecture](https://docs.polymarket.com/)
 - [Intel SGX](https://www.intel.com/content/www/us/en/developer/tools/software-guard-extensions/overview.html)
-- [NaCl Cryptography](https://nacl.cr.yp.to/)
-- [@ethereumjs/trie](https://github.com/ethereumjs/ethereumjs-monorepo/tree/master/packages/trie)
+- [Uniswap V2 Whitepaper](https://uniswap.org/whitepaper.pdf) - Constant Product AMM
+
+### Future References (Post-MVP)
+- [Pedersen Commitments](https://en.wikipedia.org/wiki/Commitment_scheme) - EC-based encryption
+- [Bulletproofs](https://eprint.iacr.org/2017/1066.pdf) - Range proofs for confidential transactions
+- [noble-secp256k1](https://github.com/paulmillr/noble-secp256k1) - Fast secp256k1 for JS

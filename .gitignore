@@ -30,3 +30,9 @@ Thumbs.db
 
 # Gas snapshots
 .gas-snapshot
+
+# Development and temporary files
+TEE_SETUP_CONTEXT.md
+ipred-tee/
+mock/
+orchestrator/
