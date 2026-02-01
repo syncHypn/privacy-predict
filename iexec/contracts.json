@@ -1,8 +1,0 @@
-{
-  "arbitrum-sepolia": {
-    "marketFactory": "0x2a5C3684a8dEe90D04F89212cb419b9742470d9B",
-    "orderQueue": "0xE5F1350f9087C175510FDaAF59AbBDaEeC54fB26",
-    "stateAnchor": "0xA5Dc3B75157C08479f7375afD5B2b97279d711d6",
-    "privateToken": "0xe782c8463b16a7174851311Bb6129A5183BA0F19"
-  }
-}
