@@ -36,3 +36,9 @@ TEE_SETUP_CONTEXT.md
 ipred-tee/
 mock/
 orchestrator/
+broadcast/
+
+# Temporary documentation
+docs/ARCHITECTURE.md
+docs/ENCRYPTION.md
+docs/IMPLEMENTATION_UPDATES.md
