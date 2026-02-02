@@ -72,7 +72,7 @@ interface IPredictionMarket {
     // ============================================================================
 
     /// @notice Buy cYES or cNO tokens with cUSDC via AMM
-    /// @dev Per SPEC.md: Triggers iApp TEE for confidential swap
+    /// @dev TEE monitors event and processes swap
     /// @param marketId Market to trade in
     /// @param isYes True to buy cYES, false to buy cNO
     /// @param encryptedAmount Encrypted cUSDC amount (encrypted with TEE public key)
@@ -83,7 +83,7 @@ interface IPredictionMarket {
     ) external;
 
     /// @notice Sell cYES or cNO tokens for cUSDC via AMM
-    /// @dev Per SPEC.md: Triggers iApp TEE for confidential swap
+    /// @dev TEE monitors event and processes swap
     /// @param marketId Market to trade in
     /// @param isYes True to sell cYES, false to sell cNO
     /// @param encryptedAmount Encrypted token amount (encrypted with TEE public key)
@@ -94,7 +94,7 @@ interface IPredictionMarket {
     ) external;
 
     /// @notice Redeem winning tokens after market resolution
-    /// @dev Per SPEC.md: cYES or cNO -> cUSDC at 1:1 rate
+    /// @dev TEE monitors event and processes redemption (cYES or cNO -> cUSDC at 1:1 rate)
     /// @param marketId Resolved market to redeem from
     function redeem(bytes32 marketId) external;
 
@@ -112,7 +112,8 @@ interface IPredictionMarket {
         uint256 priceNo
     ) external;
 
-    /// @notice Initialize AMM pool for a market (called by TEE or admin)
+    /// @notice Initialize AMM pool for a market
+    /// @dev TEE will set up initial liquidity
     /// @param marketId Market identifier
     /// @param initialLiquidity Initial cUSDC liquidity for the pool
     function initializePool(bytes32 marketId, uint256 initialLiquidity) external;

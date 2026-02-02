@@ -175,7 +175,9 @@ abstract contract ConfidentialERC20 is IConfidentialERC20, Ownable, Pausable, Re
 
 /// @title ConfidentialUSDC
 /// @notice Confidential USDC (cUSDC) token
-/// @dev Per SPEC.md: Wraps USDC deposits into encrypted balances
+/// @dev Per SPEC.md & IAPP_ORACLE_ALTERNATIVE.md:
+/// Wraps USDC deposits into encrypted balances
+/// Uses iExec oracle pattern for TEE operations
 contract ConfidentialUSDC is ConfidentialERC20 {
     using SafeERC20 for IERC20;
 
@@ -189,8 +191,7 @@ contract ConfidentialUSDC is ConfidentialERC20 {
     }
 
     /// @notice Deposit USDC to receive cUSDC
-    /// @dev Per SPEC.md: USDC -> cUSDC conversion
-    /// TEE will update encrypted balance after processing
+    /// @dev TEE monitors event and encrypts balance
     /// @param amount USDC amount to deposit
     function deposit(uint256 amount) external whenNotPaused nonReentrant {
         if (amount == 0) revert InvalidAmount();
@@ -201,13 +202,12 @@ contract ConfidentialUSDC is ConfidentialERC20 {
         // Mint cUSDC supply
         _mint(amount);
 
-        // Emit event for TEE to process
-        // TEE will: encrypt amount and add to user's balance
+        // TEE will monitor this event, encrypt the amount, and call updateBalance
         emit DepositRequested(msg.sender, amount);
     }
 
     /// @notice Request withdrawal of cUSDC for USDC
-    /// @dev Per SPEC.md: cUSDC -> USDC conversion
+    /// @dev TEE monitors event and processes withdrawal
     /// @param encryptedAmount Encrypted amount to withdraw
     /// @param proof Optional ZK proof (for post-MVP)
     function withdraw(bytes calldata encryptedAmount, bytes calldata proof)
@@ -217,26 +217,22 @@ contract ConfidentialUSDC is ConfidentialERC20 {
     {
         if (encryptedAmount.length == 0) revert InvalidAmount();
 
-        // Emit event for TEE to process
-        // TEE will: decrypt, verify balance, update balance, call processWithdrawal
+        // TEE will monitor this event, decrypt amount, verify balance, and process withdrawal
         emit WithdrawRequested(msg.sender, encryptedAmount, proof);
     }
 
     /// @notice Process withdrawal after TEE verification
-    /// @dev Only callable by TEE
+    /// @dev Called by TEE after verifying encrypted balance
     /// @param user User to send USDC to
     /// @param amount Amount to withdraw
-    function processWithdrawal(address user, uint256 amount)
-        external
-        onlyTEE
-        whenNotPaused
-        nonReentrant
-    {
+    function processWithdrawal(address user, uint256 amount) external onlyTEE whenNotPaused {
         // Burn cUSDC supply
         _burn(amount);
 
         // Transfer USDC to user
         usdc.safeTransfer(user, amount);
+
+        emit BalanceUpdated(user);
     }
 }
 

@@ -104,12 +104,11 @@ contract PredictionMarket is IPredictionMarket, Ownable, Pausable, ReentrancyGua
     ) external override whenNotPaused nonReentrant marketActive(marketId) poolRequired(marketId) {
         if (encryptedAmount.length == 0) revert InvalidAmount();
 
-        // Emit event for TEE to process
-        // Per SPEC.md: TEE will:
+        // TEE will monitor this event and:
         // 1. Decrypt the amount
         // 2. Check user's cUSDC balance
         // 3. Execute AMM swap (constant product)
-        // 4. Update encrypted balances on-chain
+        // 4. Call updateBalances and updatePrice
         emit BuyRequested(msg.sender, marketId, isYes, encryptedAmount);
     }
 
@@ -121,12 +120,7 @@ contract PredictionMarket is IPredictionMarket, Ownable, Pausable, ReentrancyGua
     ) external override whenNotPaused nonReentrant marketActive(marketId) poolRequired(marketId) {
         if (encryptedAmount.length == 0) revert InvalidAmount();
 
-        // Emit event for TEE to process
-        // Per SPEC.md: TEE will:
-        // 1. Decrypt the amount
-        // 2. Check user's cYES/cNO balance
-        // 3. Execute AMM swap (constant product)
-        // 4. Update encrypted balances on-chain
+        // TEE will monitor this event and process the swap
         emit SellRequested(msg.sender, marketId, isYes, encryptedAmount);
     }
 
@@ -145,12 +139,7 @@ contract PredictionMarket is IPredictionMarket, Ownable, Pausable, ReentrancyGua
 
         hasRedeemed[marketId][msg.sender] = true;
 
-        // Emit event for TEE to process
-        // Per SPEC.md: TEE will:
-        // 1. Check winning outcome from MarketFactory
-        // 2. Get user's winning token balance (cYES or cNO)
-        // 3. Convert 1:1 to cUSDC
-        // 4. Update encrypted balances on-chain
+        // TEE will monitor this event and process redemption
         emit RedeemRequested(msg.sender, marketId);
     }
 
@@ -178,7 +167,6 @@ contract PredictionMarket is IPredictionMarket, Ownable, Pausable, ReentrancyGua
     function initializePool(bytes32 marketId, uint256 initialLiquidity)
         external
         override
-        onlyTEE
     {
         // Verify market exists
         IMarketFactory factory = IMarketFactory(marketFactory);
@@ -187,7 +175,7 @@ contract PredictionMarket is IPredictionMarket, Ownable, Pausable, ReentrancyGua
 
         if (pools[marketId].initialized) revert PoolAlreadyExists();
 
-        // Initialize with 50/50 probability
+        // Initialize pool state (TEE will set up liquidity)
         pools[marketId] = PoolState({
             initialized: true,
             priceYes: 5000,  // 50%

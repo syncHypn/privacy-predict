@@ -9,7 +9,7 @@ import { PredictionMarket } from "../src/PredictionMarket.sol";
 /// @dev Requires MarketFactory and ConfidentialUSDC to be deployed first
 contract DeployPredictionMarket is Script {
     // Deployed contracts on Arbitrum Sepolia
-    address constant MARKET_FACTORY = 0x2a5C3684a8dEe90D04F89212cb419b9742470d9B;
+    address constant MARKET_FACTORY = 0x3555B28E59e32b6D0d81DE5fF123cbe73d518592;
 
     // TEE configuration
     address constant DEFAULT_TEE = 0x8Cdd26B54c3905BC86fEE5D2fBD7B1eeCd2B912B;
