@@ -346,46 +346,16 @@ contract ConfidentialERC20 {
 }
 ```
 
-#### PredictionMarket.sol
+#### OrderQueue.sol
 ```solidity
-contract PredictionMarket {
-    bytes32 public marketId;
-    ConfidentialERC20 public cUsdc;
-    ConfidentialERC20 public cYes;
-    ConfidentialERC20 public cNo;
-    address public teeApp;
+contract OrderQueue {
+    // Encrypted order submission - TEE processes in batches
+    function submitOrder(bytes32 marketId, bytes calldata encryptedPayload) external;
+    function cancelOrder(bytes32 orderId) external;
+    function getUserOrders(address user) external view returns (bytes32[] memory);
 
-    bool public resolved;
-    bool public outcome;  // true = YES, false = NO
-
-    // Acheter des cYES ou cNO avec des cUSDC
-    // Le prix est determine... (voir section Price Discovery)
-    function buy(
-        bool isYes,                    // true = acheter cYES, false = acheter cNO
-        bytes calldata encryptedAmount // montant de cUSDC a depenser
-    ) external {
-        // Trigger iApp pour executer le swap confidentiel
-        emit BuyRequested(msg.sender, isYes, encryptedAmount);
-    }
-
-    // Vendre des cYES ou cNO contre des cUSDC
-    function sell(
-        bool isYes,
-        bytes calldata encryptedAmount
-    ) external {
-        emit SellRequested(msg.sender, isYes, encryptedAmount);
-    }
-
-    // Apres resolution, echanger les tokens gagnants contre cUSDC
-    function redeem() external {
-        require(resolved, "Market not resolved");
-        // Trigger iApp pour calculer et transferer
-        emit RedeemRequested(msg.sender);
-    }
-
-    event BuyRequested(address indexed user, bool isYes, bytes encryptedAmount);
-    event SellRequested(address indexed user, bool isYes, bytes encryptedAmount);
-    event RedeemRequested(address indexed user);
+    event OrderSubmitted(bytes32 indexed orderId, bytes32 indexed marketId, address indexed user, bytes encryptedPayload, uint256 timestamp);
+    event OrderCancelled(bytes32 indexed orderId, address indexed user);
 }
 ```
 
@@ -1596,37 +1566,27 @@ event StateUpdated(uint256 indexed version, bytes32 indexed newRoot, bytes32 ind
 ### Buy cYES Flow (AMM Swap)
 
 ```
-┌──────┐       ┌────────────────┐       ┌─────────┐       ┌───────────┐
-│ User │       │PredictionMarket│       │ iApp TEE│       │cYES Contract│
-└──┬───┘       └───────┬────────┘       └────┬────┘       └─────┬─────┘
-   │                   │                     │                  │
-   │ 1. buy(YES,       │                     │                  │
-   │    encryptedAmt)  │                     │                  │
-   │──────────────────>│                     │                  │
-   │                   │                     │                  │
-   │                   │ 2. emit BuyRequested│                  │
-   │                   │────────────────────>│                  │
-   │                   │                     │                  │
-   │                   │                     │ 3. Decrypt amount│
-   │                   │                     │ 4. Check cUSDC   │
-   │                   │                     │    balance       │
-   │                   │                     │ 5. Calculate AMM │
-   │                   │                     │    (constant     │
-   │                   │                     │    product)      │
-   │                   │                     │ 6. Update        │
-   │                   │                     │    reserves      │
-   │                   │                     │                  │
-   │                   │ 7. updateBalance    │                  │
-   │                   │ (cUSDC: -amount)    │                  │
-   │                   │<────────────────────│                  │
-   │                   │                     │                  │
-   │                   │                     │ 8. updateBalance │
-   │                   │                     │ (cYES: +tokens)  │
-   │                   │                     │─────────────────>│
-   │                   │                     │                  │
-   │ 9. Swap complete  │                     │                  │
-   │ (balances updated)│                     │                  │
-   │                   │                     │                  │
+┌──────┐       ┌────────────┐       ┌─────────┐       ┌───────────┐
+│ User │       │ OrderQueue │       │ iApp TEE│       │StateAnchor│
+└──┬───┘       └─────┬──────┘       └────┬────┘       └─────┬─────┘
+   │                 │                    │                   │
+   │ 1. submitOrder  │                    │                   │
+   │ (encrypted)     │                    │                   │
+   │────────────────>│                    │                   │
+   │                 │                    │                   │
+   │                 │ 2. OrderSubmitted  │                   │
+   │                 │───────────────────>│                   │
+   │                 │                    │                   │
+   │                 │                    │ 3. Decrypt order  │
+   │                 │                    │ 4. Execute AMM    │
+   │                 │                    │ 5. Update state   │
+   │                 │                    │                   │
+   │                 │                    │ 6. commitRoot()   │
+   │                 │                    │──────────────────>│
+   │                 │                    │                   │
+   │ 7. Order filled │                    │                   │
+   │ (state updated) │                    │                   │
+   │                 │                    │                   │
 ```
 
 ### Market Resolution & Settlement Flow

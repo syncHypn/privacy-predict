@@ -246,20 +246,9 @@ contract ConfidentialOutcomeToken is ConfidentialERC20 {
     /// @notice Whether this is a YES token (false = NO)
     bool public immutable isYes;
 
-    /// @notice PredictionMarket contract that can mint/burn
-    address public immutable predictionMarket;
-
-    error NotPredictionMarket();
-
-    modifier onlyPredictionMarket() {
-        if (msg.sender != predictionMarket) revert NotPredictionMarket();
-        _;
-    }
-
     constructor(
         bytes32 _marketId,
         bool _isYes,
-        address _predictionMarket,
         address _teeApp
     )
         ConfidentialERC20(
@@ -270,7 +259,6 @@ contract ConfidentialOutcomeToken is ConfidentialERC20 {
     {
         marketId = _marketId;
         isYes = _isYes;
-        predictionMarket = _predictionMarket;
     }
 
     /// @notice Mint tokens during AMM buy

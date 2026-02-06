@@ -40,6 +40,11 @@ contract IExecCallbackReceiver is Ownable, Pausable {
         uint256 usersUpdated
     );
 
+    event WithdrawalsApplied(
+        bytes32 indexed taskId,
+        uint256 withdrawalsProcessed
+    );
+
     error NotIExecHub();
     error TaskAlreadyProcessed();
     error EmptyCallback();
@@ -107,6 +112,29 @@ contract IExecCallbackReceiver is Ownable, Pausable {
         privateToken.batchUpdateBalances(users, encryptedBalances, stateRoot);
 
         emit BalancesApplied(_taskId, stateRoot, users.length);
+    }
+
+    /// @notice Apply withdrawals from a completed TEE task
+    /// @dev Called by owner after callback, using data from withdrawal-data.json.
+    /// @param _taskId The task ID that produced these withdrawals
+    /// @param users Array of user addresses to withdraw to
+    /// @param amounts Array of withdrawal amounts
+    /// @param proofs Array of withdrawal proofs (for replay prevention)
+    function applyWithdrawals(
+        bytes32 _taskId,
+        address[] calldata users,
+        uint256[] calldata amounts,
+        bytes[] calldata proofs
+    ) external onlyOwner whenNotPaused {
+        if (taskStateRoots[_taskId] == bytes32(0)) revert TaskNotProcessed();
+        if (users.length != amounts.length || users.length != proofs.length) revert EmptyCallback();
+
+        for (uint256 i = 0; i < users.length; ) {
+            privateToken.processWithdrawal(users[i], amounts[i], proofs[i]);
+            unchecked { ++i; }
+        }
+
+        emit WithdrawalsApplied(_taskId, users.length);
     }
 
     // Admin functions

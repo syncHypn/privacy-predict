@@ -114,6 +114,9 @@ const main = async () => {
     // Process deposits from input files (#1=deposits.json)
     await processDeposits(stateManager);
 
+    // Process withdrawals from input files (#5=withdrawals.json)
+    const { withdrawalsProcessed, validatedWithdrawals } = await processWithdrawals(stateManager, marketId);
+
     // Process pending orders from input files (#2=orders.json)
     const ordersProcessed = await processOrders(amm, stateManager, marketId);
 
@@ -140,6 +143,15 @@ const main = async () => {
     );
     console.log('Private state written (encrypted)');
 
+    // Write withdrawal data for relayer (to call processWithdrawal on-chain)
+    if (validatedWithdrawals.length > 0) {
+      await fs.writeFile(
+        path.join(IEXEC_OUT, 'withdrawal-data.json'),
+        JSON.stringify(validatedWithdrawals, null, 2)
+      );
+      console.log(`Withdrawal data written (${validatedWithdrawals.length} withdrawals)`);
+    }
+
     // Write state metadata
     const metadata = {
       marketId,
@@ -147,6 +159,7 @@ const main = async () => {
       version: stateManager.getVersion(),
       timestamp: Date.now(),
       ordersProcessed,
+      withdrawalsProcessed,
     };
     await fs.writeFile(
       path.join(IEXEC_OUT, 'state-metadata.json'),
@@ -163,6 +176,7 @@ const main = async () => {
       encryptedBalances,
       stateRoot,
       matchId,
+      withdrawals: validatedWithdrawals,
     });
 
     // Write callback data (legacy JSON format for manual relayer)
@@ -192,6 +206,7 @@ const main = async () => {
       stateRoot,
       version: stateManager.getVersion(),
       ordersProcessed,
+      withdrawalsProcessed,
       usersUpdated: users.length,
       prices: stateManager.getIndicativePrices(marketId),
       timestamp: Date.now(),
@@ -432,6 +447,76 @@ async function processDeposits(stateManager) {
   } catch (e) {
     console.error('Failed to process deposits:', e.message);
   }
+}
+
+/**
+ * Processes withdrawal requests from input files
+ * @param {StateManager} stateManager
+ * @param {string} marketId
+ * @returns {Promise<{ withdrawalsProcessed: number, validatedWithdrawals: Array }>}
+ */
+async function processWithdrawals(stateManager, marketId) {
+  const withdrawalsContent = await readInputFile('withdrawals.json', 5);
+  if (!withdrawalsContent) {
+    console.log('No withdrawals file found');
+    return { withdrawalsProcessed: 0, validatedWithdrawals: [] };
+  }
+
+  let withdrawalsProcessed = 0;
+  const validatedWithdrawals = [];
+
+  try {
+    const withdrawals = JSON.parse(withdrawalsContent);
+    console.log(`Processing ${withdrawals.length} withdrawal requests`);
+
+    for (const withdrawal of withdrawals) {
+      const { withdrawalId, user, amount: amountStr } = withdrawal;
+
+      // Skip already processed withdrawals (reuse order tracking)
+      if (stateManager.isOrderProcessed(withdrawalId)) {
+        console.log(`Skipping already processed withdrawal ${withdrawalId}`);
+        continue;
+      }
+
+      try {
+        const amount = BigInt(amountStr);
+
+        // Validate sufficient cUSDC balance
+        const balance = stateManager.getBalance(user, 'cUSDC');
+        if (balance < amount) {
+          console.error(`Withdrawal ${withdrawalId} rejected: ${user} has ${balance} cUSDC, needs ${amount}`);
+          continue;
+        }
+
+        // Deduct balance
+        stateManager.subtractBalance(user, 'cUSDC', amount);
+
+        // Generate proof for on-chain replay prevention
+        const proofData = ethers.solidityPackedKeccak256(
+          ['string', 'string', 'uint256'],
+          [withdrawalId, marketId, stateManager.getVersion()]
+        );
+
+        validatedWithdrawals.push({
+          user,
+          amount: amountStr,
+          proof: proofData,
+        });
+
+        stateManager.markOrderProcessed(withdrawalId);
+        withdrawalsProcessed++;
+
+        console.log(`Withdrawal ${withdrawalId}: ${user} withdrawing ${amount} cUSDC`);
+
+      } catch (e) {
+        console.error(`Failed to process withdrawal ${withdrawalId}: ${e.message}`);
+      }
+    }
+  } catch (e) {
+    console.error('Failed to parse withdrawals:', e.message);
+  }
+
+  return { withdrawalsProcessed, validatedWithdrawals };
 }
 
 /**
