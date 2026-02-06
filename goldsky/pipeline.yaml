@@ -1,0 +1,168 @@
+name: ipred
+apiVersion: 3
+
+sources:
+  arb_sepolia_logs:
+    type: dataset
+    dataset_name: arbitrum_sepolia.raw_logs
+    version: 1.0.0
+    start_at: latest
+    filter: address = '0x3555b28e59e32b6d0d81de5ff123cbe73d518592' OR address = '0x67b830886a47bbb5f2019eb129e81f217ec56f09' OR address = '0x7402c579e7a661b3fda0553e511d14bf0aadcab9' OR address = '0x074af457ea1c58752705ce157f6892e5bbfc5988'
+
+transforms:
+  # ── MarketFactory: decode ──
+  market_factory_decoded:
+    primary_key: id
+    sql: |
+      SELECT
+        `id`,
+        _gs_log_decode(
+          '[{"anonymous":false,"type":"event","name":"MarketCreated","inputs":[{"name":"marketId","type":"bytes32","indexed":true},{"name":"question","type":"string","indexed":false},{"name":"outcomes","type":"string[]","indexed":false},{"name":"resolutionTime","type":"uint256","indexed":false},{"name":"creator","type":"address","indexed":true}]},{"anonymous":false,"type":"event","name":"MarketResolved","inputs":[{"name":"marketId","type":"bytes32","indexed":true},{"name":"winningOutcome","type":"uint8","indexed":false}]}]',
+          `topics`,
+          `data`
+        ) AS `decoded`,
+        block_number,
+        block_timestamp,
+        transaction_hash,
+        log_index
+      FROM arb_sepolia_logs
+      WHERE address = '0x3555b28e59e32b6d0d81de5ff123cbe73d518592'
+
+  market_factory_events:
+    primary_key: id
+    sql: |
+      SELECT
+        `id`,
+        decoded.event_params AS `event_params`,
+        decoded.event_signature AS `event_signature`,
+        block_number,
+        block_timestamp,
+        transaction_hash,
+        log_index
+      FROM market_factory_decoded
+      WHERE decoded IS NOT NULL
+
+  # ── OrderQueue: decode ──
+  order_queue_decoded:
+    primary_key: id
+    sql: |
+      SELECT
+        `id`,
+        _gs_log_decode(
+          '[{"anonymous":false,"type":"event","name":"OrderSubmitted","inputs":[{"name":"orderId","type":"bytes32","indexed":true},{"name":"marketId","type":"bytes32","indexed":true},{"name":"user","type":"address","indexed":true},{"name":"encryptedPayload","type":"bytes","indexed":false},{"name":"timestamp","type":"uint256","indexed":false}]},{"anonymous":false,"type":"event","name":"OrderCancelled","inputs":[{"name":"orderId","type":"bytes32","indexed":true},{"name":"user","type":"address","indexed":true}]}]',
+          `topics`,
+          `data`
+        ) AS `decoded`,
+        block_number,
+        block_timestamp,
+        transaction_hash,
+        log_index
+      FROM arb_sepolia_logs
+      WHERE address = '0x67b830886a47bbb5f2019eb129e81f217ec56f09'
+
+  order_queue_events:
+    primary_key: id
+    sql: |
+      SELECT
+        `id`,
+        decoded.event_params AS `event_params`,
+        decoded.event_signature AS `event_signature`,
+        block_number,
+        block_timestamp,
+        transaction_hash,
+        log_index
+      FROM order_queue_decoded
+      WHERE decoded IS NOT NULL
+
+  # ── PrivateToken: decode ──
+  private_token_decoded:
+    primary_key: id
+    sql: |
+      SELECT
+        `id`,
+        _gs_log_decode(
+          '[{"anonymous":false,"type":"event","name":"Deposit","inputs":[{"name":"user","type":"address","indexed":true},{"name":"amount","type":"uint256","indexed":false},{"name":"commitment","type":"bytes32","indexed":true}]},{"anonymous":false,"type":"event","name":"WithdrawalRequested","inputs":[{"name":"user","type":"address","indexed":true},{"name":"commitmentHash","type":"bytes32","indexed":true}]},{"anonymous":false,"type":"event","name":"WithdrawalProcessed","inputs":[{"name":"user","type":"address","indexed":true},{"name":"amount","type":"uint256","indexed":false}]}]',
+          `topics`,
+          `data`
+        ) AS `decoded`,
+        block_number,
+        block_timestamp,
+        transaction_hash,
+        log_index
+      FROM arb_sepolia_logs
+      WHERE address = '0x7402c579e7a661b3fda0553e511d14bf0aadcab9'
+
+  private_token_events:
+    primary_key: id
+    sql: |
+      SELECT
+        `id`,
+        decoded.event_params AS `event_params`,
+        decoded.event_signature AS `event_signature`,
+        block_number,
+        block_timestamp,
+        transaction_hash,
+        log_index
+      FROM private_token_decoded
+      WHERE decoded IS NOT NULL
+
+  # ── StateAnchor: decode ──
+  state_anchor_decoded:
+    primary_key: id
+    sql: |
+      SELECT
+        `id`,
+        _gs_log_decode(
+          '[{"anonymous":false,"type":"event","name":"StateUpdated","inputs":[{"name":"version","type":"uint256","indexed":true},{"name":"newRoot","type":"bytes32","indexed":true},{"name":"previousRoot","type":"bytes32","indexed":true},{"name":"matchId","type":"bytes32","indexed":false}]}]',
+          `topics`,
+          `data`
+        ) AS `decoded`,
+        block_number,
+        block_timestamp,
+        transaction_hash,
+        log_index
+      FROM arb_sepolia_logs
+      WHERE address = '0x074af457ea1c58752705ce157f6892e5bbfc5988'
+
+  state_anchor_events:
+    primary_key: id
+    sql: |
+      SELECT
+        `id`,
+        decoded.event_params AS `event_params`,
+        decoded.event_signature AS `event_signature`,
+        block_number,
+        block_timestamp,
+        transaction_hash,
+        log_index
+      FROM state_anchor_decoded
+      WHERE decoded IS NOT NULL
+
+sinks:
+  market_factory_pg:
+    type: postgres
+    table: market_factory_events
+    schema: indexer
+    secret_name: IPRED_PG
+    from: market_factory_events
+
+  order_queue_pg:
+    type: postgres
+    table: order_queue_events
+    schema: indexer
+    secret_name: IPRED_PG
+    from: order_queue_events
+
+  private_token_pg:
+    type: postgres
+    table: private_token_events
+    schema: indexer
+    secret_name: IPRED_PG
+    from: private_token_events
+
+  state_anchor_pg:
+    type: postgres
+    table: state_anchor_events
+    schema: indexer
+    secret_name: IPRED_PG
+    from: state_anchor_events

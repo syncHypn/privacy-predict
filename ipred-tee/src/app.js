@@ -22,10 +22,11 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { ethers } from 'ethers';
 import { IExecDataProtectorDeserializer } from '@iexec/dataprotector-deserializer';
-import { hexToBytes, generateSealedKey, encryptState } from './encryption.js';
+import { hexToBytes, generateSealedKey, encryptState, decryptBalance, encryptForUser } from './encryption.js';
 import { StateManager } from './stateManager.js';
 import { ConfidentialAMM } from './amm.js';
 import { generateCallbackData } from './chainWriter.js';
+import { ChainReader } from './chainReader.js';
 
 // ============================================================
 // Configuration
@@ -72,28 +73,38 @@ const main = async () => {
     console.log(`Received ${rawArgs.length} raw args:`, rawArgs);
 
     const argsString = rawArgs.join(' ').trim();
-    if (!argsString) {
-      throw new Error('MISSING_MARKET_ID: Market ID required. Use: --args "market=0x..."');
-    }
-
-    // Parse key=value args
-    let marketId = null;
-    for (const arg of argsString.split(' ')) {
-      if (arg.startsWith('market=')) {
-        marketId = arg.substring(7); // Remove "market=" prefix
-        break;
+      if (!argsString) {
+        throw new Error('MISSING_ARGS: At least one argument required. Use: --args "market=0x..." or --args "balance <address> <sig> <pubkey>"');
       }
-    }
 
-    // Fallback: use first arg if no market= prefix found
-    if (!marketId) {
-      marketId = argsString.split(' ')[0];
-    }
+      // ── Balance query mode ──
+      if (argsString.startsWith('balance')) {
+        const parts = argsString.split(' ');
+        result = await handleBalanceQuery(parts, IEXEC_OUT);
+        computedJsonObj = {
+          'deterministic-output-path': path.join(IEXEC_OUT, 'result.json'),
+        };
+        return;
+      }
 
-    // Validate marketId format
-    if (!marketId || marketId.length === 0) {
-      throw new Error('INVALID_MARKET_ID: Market ID is empty');
-    }
+      // Parse key=value args
+      let marketId = null;
+      for (const arg of argsString.split(' ')) {
+        if (arg.startsWith('market=')) {
+          marketId = arg.substring(7); // Remove "market=" prefix
+          break;
+        }
+      }
+
+      // Fallback: use first arg if no market= prefix found
+      if (!marketId) {
+        marketId = argsString.split(' ')[0];
+      }
+
+      // Validate marketId format
+      if (!marketId || marketId.length === 0) {
+        throw new Error('INVALID_MARKET_ID: Market ID is empty');
+      }
 
     console.log(`Processing market: ${marketId}`);
 
@@ -579,6 +590,112 @@ async function processOrders(amm, stateManager, marketId) {
   }
 
   return ordersProcessed;
+}
+
+// ============================================================
+// Balance Query Handler
+// ============================================================
+
+/**
+ * Handles a balance query request.
+ * Args: balance <userAddress> <signature> <userNaclPubkeyHex>
+ *
+ * 1. Verify Ethereum signature to prove address ownership
+ * 2. Read encrypted balance from PrivateToken contract
+ * 3. Decrypt with sealed key
+ * 4. Re-encrypt with user's ephemeral NaCl public key
+ * 5. Output result
+ *
+ * @param {string[]} args - CLI arguments
+ * @param {string} outputDir - IEXEC_OUT path
+ * @returns {Promise<Object>} Result object
+ */
+async function handleBalanceQuery(args, outputDir) {
+  if (args.length < 4) {
+    throw new Error(
+      'BALANCE_QUERY: Requires args: balance <userAddress> <signature> <userNaclPubkeyHex>'
+    );
+  }
+
+  const userAddress = args[1];
+  const signature = args[2];
+  const userNaclPubkeyHex = args[3];
+
+  console.log(`=== Balance Query for ${userAddress} ===`);
+
+  // 1. Verify signature
+  const message = `iPred balance query: ${userAddress.toLowerCase()}`;
+  const recoveredAddress = ethers.verifyMessage(message, signature);
+  if (recoveredAddress.toLowerCase() !== userAddress.toLowerCase()) {
+    throw new Error(
+      `INVALID_SIGNATURE: Expected ${userAddress}, recovered ${recoveredAddress}`
+    );
+  }
+  console.log('Signature verified');
+
+  // 2. Get sealed key
+  const sealedKey = await getSealedKey();
+
+  // 3. Read encrypted balance from chain
+  const chainReader = new ChainReader({
+    rpcUrl: CONFIG.rpcUrl,
+    orderQueueAddress: CONFIG.contracts.orderQueue,
+    marketFactoryAddress: CONFIG.contracts.marketFactory,
+    privateTokenAddress: CONFIG.contracts.privateToken,
+    teeSecretKey: sealedKey,
+  });
+
+  const encryptedBalances = await chainReader.getEncryptedBalance(userAddress);
+
+  if (!encryptedBalances) {
+    console.log('No balance found for user');
+    const result = {
+      success: true,
+      action: 'balance',
+      userAddress,
+      balances: null,
+      timestamp: Date.now(),
+    };
+    await fs.writeFile(
+      path.join(outputDir, 'result.json'),
+      JSON.stringify(result, null, 2)
+    );
+    return result;
+  }
+
+  // 4. Decrypt each token balance with sealed key
+  const plaintextBalances = {};
+  for (const [token, encrypted] of Object.entries(encryptedBalances)) {
+    try {
+      const value = decryptBalance(encrypted, sealedKey);
+      plaintextBalances[token] = value.toString();
+    } catch (e) {
+      console.error(`Failed to decrypt balance for ${token}:`, e.message);
+      plaintextBalances[token] = '0';
+    }
+  }
+  console.log(`Decrypted ${Object.keys(plaintextBalances).length} token balances`);
+
+  // 5. Re-encrypt with user's NaCl public key
+  const userPubkey = hexToBytes(userNaclPubkeyHex);
+  const encrypted = encryptForUser(JSON.stringify(plaintextBalances), userPubkey);
+
+  // 6. Write result
+  const result = {
+    success: true,
+    action: 'balance',
+    userAddress,
+    encrypted,
+    timestamp: Date.now(),
+  };
+
+  await fs.writeFile(
+    path.join(outputDir, 'result.json'),
+    JSON.stringify(result, null, 2)
+  );
+
+  console.log('=== Balance Query Complete ===');
+  return result;
 }
 
 // ============================================================

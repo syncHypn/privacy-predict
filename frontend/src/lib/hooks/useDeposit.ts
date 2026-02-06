@@ -1,0 +1,86 @@
+"use client";
+
+import { writeContract, waitForTransactionReceipt } from "wagmi/actions";
+import { wagmiConfig } from "../wagmi";
+import { ADDRESSES } from "../contracts/addresses";
+import { ERC20ABI } from "../contracts/abis/ERC20";
+import { PrivateTokenABI } from "../contracts/abis/PrivateToken";
+import { parseUSDC } from "../utils";
+import { useState, useCallback } from "react";
+import { toast } from "sonner";
+
+type Step = "idle" | "processing" | "approving" | "depositing" | "done";
+
+export function useDeposit() {
+  const [step, setStep] = useState<Step>("idle");
+
+  const executeDeposit = useCallback(
+    async (amount: string, isEmbeddedWallet: boolean) => {
+      const amountBigInt = parseUSDC(amount);
+
+      setStep(isEmbeddedWallet ? "processing" : "approving");
+
+      try {
+        const approveHash = await writeContract(wagmiConfig, {
+          address: ADDRESSES.MockUSDC as `0x${string}`,
+          abi: ERC20ABI,
+          functionName: "approve",
+          args: [ADDRESSES.PrivateToken as `0x${string}`, amountBigInt],
+        });
+
+        const approveReceipt = await waitForTransactionReceipt(wagmiConfig, {
+          hash: approveHash,
+        });
+
+        if (approveReceipt.status === "reverted") {
+          throw new Error("Approval transaction reverted");
+        }
+
+        if (!isEmbeddedWallet) {
+          setStep("depositing");
+        }
+
+        const depositHash = await writeContract(wagmiConfig, {
+          address: ADDRESSES.PrivateToken as `0x${string}`,
+          abi: PrivateTokenABI,
+          functionName: "deposit",
+          args: [amountBigInt],
+        });
+
+        const depositReceipt = await waitForTransactionReceipt(wagmiConfig, {
+          hash: depositHash,
+        });
+
+        if (depositReceipt.status === "reverted") {
+          throw new Error("Deposit transaction reverted — check your USDC balance");
+        }
+
+        setStep("done");
+        toast.success("Deposit successful!");
+      } catch (err: unknown) {
+        setStep("idle");
+        const raw = err instanceof Error ? err.message : "Transaction failed";
+        if (raw.includes("User rejected") || raw.includes("user rejected")) {
+          toast.error("Transaction rejected");
+        } else if (raw.includes("exceeds balance") || raw.includes("insufficient")) {
+          toast.error("Insufficient USDC balance");
+        } else {
+          toast.error(raw.length > 100 ? raw.slice(0, 100) + "..." : raw);
+        }
+      }
+    },
+    []
+  );
+
+  const isProcessing =
+    step === "processing" || step === "approving" || step === "depositing";
+
+  const reset = useCallback(() => setStep("idle"), []);
+
+  return {
+    executeDeposit,
+    step,
+    isProcessing,
+    reset,
+  };
+}
