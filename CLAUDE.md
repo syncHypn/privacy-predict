@@ -8,9 +8,8 @@
 
 ## Deployed iApp (Arbitrum Sepolia)
 
-- **iApp Address**: `0x9e2CE74eEbD25209C9C58FadEC81fbD239d74CBa`
-- **Docker Image**: `romthpt/ipred-tee:0.0.1-tee-scone-5.9.1-v16-prod-b7e4ab0b6e85`
-- **Explorer**: https://explorer.iex.ec/arbitrum-sepolia-testnet/app/0x9e2CE74eEbD25209C9C58FadEC81fbD239d74CBa
+- **iApp Address**: `0x91721CDAEC96B755F4939FABE4C13e971794F55c`
+- **Explorer**: https://explorer.iex.ec/arbitrum-sepolia-testnet/app/0x91721CDAEC96B755F4939FABE4C13e971794F55c
 
 ### Running the iApp
 
@@ -65,6 +64,7 @@ Input file formats:
 | MarketFactory | 0x3555b28e59e32b6d0d81de5ff123cbe73d518592 |
 | OrderQueue | 0x67b830886a47bbb5f2019eb129e81f217ec56f09 |
 | StateAnchor | 0x074af457ea1c58752705ce157f6892e5bbfc5988 |
+| CallbackReceiver | 0xa255688d06d19e2cd37C40BBDC8615Da5a5b749B |
 
 ## Test Markets (Arbitrum Sepolia)
 
@@ -80,12 +80,66 @@ Input file formats:
 - External storage (Pinata/Arweave) disabled in TEE to avoid WebAssembly crashes
 - Clients compute prices from public state (no on-chain price updates)
 
+## iExec On-Chain Callback
+
+The TEE app produces ABI-encoded `callback-data` in `computed.json`. When the iApp is run
+with a `--callback` address, the iExec PoCo hub automatically calls
+`IExecCallbackReceiver.receiveResult(bytes32 taskId, bytes callbackData)` after task completion.
+
+### Callback Flow (Two-Phase)
+
+1. TEE processes deposits + orders, computes new state
+2. TEE ABI-encodes lightweight payload: `(bytes32 stateRoot, bytes32 matchId, bytes attestation)`
+3. iExec PoCo hub calls `CallbackReceiver.receiveResult()` on-chain (200k gas limit)
+4. CallbackReceiver forwards to `StateAnchor.commitRoot()` (state root committed)
+5. Owner calls `CallbackReceiver.applyBalanceUpdate()` separately with balance data from `callback-data.json`
+
+### Deploying CallbackReceiver
+
+```bash
+# Deploy (requires IEXEC_HUB address for the target chain)
+IEXEC_HUB=<poco-hub-address> forge script script/DeployCallbackReceiver.s.sol \
+  --rpc-url arbitrum_sepolia --broadcast --account deployer
+
+# Then set it as TEE address on existing contracts (owner-only)
+cast send 0x074af457ea1c58752705ce157f6892e5bbfc5988 "setTEEAddress(address)" <callback-receiver> --rpc-url arbitrum_sepolia --account deployer
+cast send 0x7402c579e7a661b3fda0553e511d14bf0aadcab9 "setTEEAddress(address)" <callback-receiver> --rpc-url arbitrum_sepolia --account deployer
+```
+
+### Running with Callback
+
+**Important**: `iapp run` does NOT support `--callback`. Use `iexec app run` instead.
+Must be run from the `ipred-tee/` directory (where `chain.json` exists).
+
+```bash
+# Use iexec SDK (not iapp) for callback support
+cd ipred-tee && iexec app run 0x91721CDAEC96B755F4939FABE4C13e971794F55c \
+  --args "market=0x3a2b..." \
+  --input-files https://gateway.pinata.cloud/ipfs/<deposits-CID>,https://gateway.pinata.cloud/ipfs/<orders-CID> \
+  --callback 0xa255688d06d19e2cd37C40BBDC8615Da5a5b749B \
+  --tag tee,scone \
+  --chain arbitrum-sepolia-testnet \
+  --keystoredir /Users/romt/.ethereum/keystore \
+  --wallet-file 0x8Cdd26B54c3905BC86fEE5D2fBD7B1eeCd2B912B.json \
+  --watch
+```
+
+Note: `--input-files` uses comma-separated URLs (no spaces). `--tag tee,scone` is required.
+
+### Gas Limit
+
+iExec callbacks have a 200k gas limit. The callback only commits the state root
+(lightweight). Balance updates are applied separately via `applyBalanceUpdate()`
+by the owner, using the `callback-data.json` output from the TEE task.
+
 ## State Output Files (in IEXEC_OUT)
 
 - `public-state.json` - plaintext pool data (clients can read prices)
 - `private-state.enc` - encrypted balances (base64)
 - `state-metadata.json` - market ID, state root, version
+- `callback-data.json` - JSON callback data for manual relayer (legacy)
 - `result.json` - execution result with attestation
+- `computed.json` - iExec required file, contains `callback-data` (ABI-encoded) + `deterministic-output-path`
 
 ## Redeployment
 

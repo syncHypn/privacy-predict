@@ -20,6 +20,7 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { ethers } from 'ethers';
 import { IExecDataProtectorDeserializer } from '@iexec/dataprotector-deserializer';
 import { hexToBytes, generateSealedKey, encryptState } from './encryption.js';
 import { StateManager } from './stateManager.js';
@@ -164,12 +165,25 @@ const main = async () => {
       matchId,
     });
 
-    // Write callback data
+    // Write callback data (legacy JSON format for manual relayer)
     await fs.writeFile(
       path.join(IEXEC_OUT, 'callback-data.json'),
       JSON.stringify(callbackData, null, 2)
     );
     console.log('Callback data written');
+
+    // ABI-encode lightweight callback payload for iExec on-chain callback
+    // Only state root + attestation (fits within 200k gas limit)
+    // Balance updates are applied separately via applyBalanceUpdate()
+    // Schema: (bytes32 stateRoot, bytes32 matchId, bytes attestation)
+    const abiCoder = new ethers.AbiCoder();
+    const attestationBytes = ethers.toUtf8Bytes(callbackData.attestation);
+
+    const abiEncodedCallback = abiCoder.encode(
+      ['bytes32', 'bytes32', 'bytes'],
+      [stateRoot, matchId, attestationBytes]
+    );
+    console.log(`ABI-encoded callback: ${abiEncodedCallback.length} bytes`);
 
     // Build result summary
     result = {
@@ -195,8 +209,10 @@ const main = async () => {
     console.log(`Prices:`, result.prices);
 
     // Build computed.json for iExec (REQUIRED)
+    // callback-data: ABI-encoded bytes sent to CallbackReceiver.receiveResult()
     computedJsonObj = {
       'deterministic-output-path': path.join(IEXEC_OUT, 'result.json'),
+      'callback-data': abiEncodedCallback,
     };
 
   } catch (e) {
