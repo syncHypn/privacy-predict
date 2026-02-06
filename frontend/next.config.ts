@@ -5,6 +5,14 @@ const nextConfig: NextConfig = {
   // so we skip static generation
   output: undefined,
   serverExternalPackages: ["iexec"],
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "assets.coingecko.com",
+      },
+    ],
+  },
 };
 
 export default nextConfig;

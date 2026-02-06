@@ -1,6 +1,7 @@
 "use client";
 
-import { writeContract, waitForTransactionReceipt } from "wagmi/actions";
+import { writeContract, waitForTransactionReceipt, switchChain } from "wagmi/actions";
+import { arbitrumSepolia } from "wagmi/chains";
 import { wagmiConfig } from "../wagmi";
 import { ADDRESSES } from "../contracts/addresses";
 import { ERC20ABI } from "../contracts/abis/ERC20";
@@ -21,7 +22,9 @@ export function useDeposit() {
       setStep(isEmbeddedWallet ? "processing" : "approving");
 
       try {
+        await switchChain(wagmiConfig, { chainId: arbitrumSepolia.id });
         const approveHash = await writeContract(wagmiConfig, {
+          chainId: arbitrumSepolia.id,
           address: ADDRESSES.MockUSDC as `0x${string}`,
           abi: ERC20ABI,
           functionName: "approve",
@@ -41,6 +44,7 @@ export function useDeposit() {
         }
 
         const depositHash = await writeContract(wagmiConfig, {
+          chainId: arbitrumSepolia.id,
           address: ADDRESSES.PrivateToken as `0x${string}`,
           abi: PrivateTokenABI,
           functionName: "deposit",

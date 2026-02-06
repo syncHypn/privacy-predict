@@ -1,6 +1,7 @@
 "use client";
 
-import { writeContract, waitForTransactionReceipt } from "wagmi/actions";
+import { writeContract, waitForTransactionReceipt, switchChain } from "wagmi/actions";
+import { arbitrumSepolia } from "wagmi/chains";
 import { wagmiConfig } from "../wagmi";
 import { ADDRESSES } from "../contracts/addresses";
 import { PrivateTokenABI } from "../contracts/abis/PrivateToken";
@@ -26,6 +27,7 @@ export function useWithdraw() {
       setStep("processing");
 
       try {
+        await switchChain(wagmiConfig, { chainId: arbitrumSepolia.id });
         const keyPair = generateKeyPair();
 
         const { encryptedAmount, commitmentHash } = encryptWithdrawal(
@@ -35,6 +37,7 @@ export function useWithdraw() {
         );
 
         const txHash = await writeContract(wagmiConfig, {
+          chainId: arbitrumSepolia.id,
           address: ADDRESSES.PrivateToken as `0x${string}`,
           abi: PrivateTokenABI,
           functionName: "requestWithdrawal",

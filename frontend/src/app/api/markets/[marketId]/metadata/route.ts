@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { upsertMarketMetadata } from "@/lib/services/market.service";
+import { verifyAdmin } from "@/lib/server/auth";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ marketId: string }> }
 ) {
   try {
-    // API key auth
-    const authHeader = req.headers.get("authorization");
-    const apiKey = process.env.ADMIN_API_KEY;
-    if (!apiKey || authHeader !== `Bearer ${apiKey}`) {
+    const adminAddress = await verifyAdmin(req.headers.get("authorization"));
+    if (!adminAddress) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

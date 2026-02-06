@@ -72,13 +72,13 @@ export const api = {
       category?: string | null;
       featured?: boolean;
     },
-    apiKey: string
+    accessToken: string
   ): Promise<void> {
     const res = await fetch(`${BASE}/markets/${marketId}/metadata`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify(data),
     });

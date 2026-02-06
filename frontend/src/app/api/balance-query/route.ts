@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { IExec, utils } from "iexec";
 
-const IAPP_ADDRESS = "0x27c122b98EF9e8Ec3ea0CF1AaD1b7dbb22949F6C";
+const IAPP_ADDRESS = "0xd9735E83383E5aeDC236Fb9697793baBF34868bC";
 
 export async function POST(req: NextRequest) {
   try {
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
     }
 
     const ethProvider = utils.getSignerFromPrivateKey(
-      "https://bellecour.iex.ec",
+      "https://arbitrum-sepolia.iex.ec",
       privateKey
     );
     const iexec = new IExec({ ethProvider });

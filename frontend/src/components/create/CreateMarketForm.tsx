@@ -10,13 +10,27 @@ import { Label } from "@/components/ui/label";
 import { useCreateMarket } from "@/lib/hooks/useCreateMarket";
 import { toast } from "sonner";
 
+const CATEGORIES = [
+  "Crypto",
+  "Politics",
+  "Sports",
+  "Tech",
+  "Finance",
+  "Science",
+  "Entertainment",
+  "Other",
+];
+
 export function CreateMarketForm() {
   const { authenticated, login } = usePrivy();
   const [question, setQuestion] = useState("");
   const [outcome1, setOutcome1] = useState("Yes");
   const [outcome2, setOutcome2] = useState("No");
   const [resolutionDate, setResolutionDate] = useState("");
-  const { createMarket, isPending, isConfirmed, error, txHash } = useCreateMarket();
+  const [description, setDescription] = useState("");
+  const [category, setCategory] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
+  const { createMarket, isPending, isConfirmed, txHash, marketId } = useCreateMarket();
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -29,15 +43,12 @@ export function CreateMarketForm() {
     const resolutionTime = BigInt(
       Math.floor(new Date(resolutionDate).getTime() / 1000)
     );
-    createMarket(question, [outcome1, outcome2], resolutionTime);
+    createMarket(question, [outcome1, outcome2], resolutionTime, {
+      description: description || undefined,
+      category: category || undefined,
+      imageUrl: imageUrl || undefined,
+    });
     toast.info("Creating market...");
-  }
-
-  if (isConfirmed) {
-    toast.success("Market created successfully!");
-  }
-  if (error) {
-    toast.error(`Market creation failed: ${error.message}`);
   }
 
   return (
@@ -57,6 +68,47 @@ export function CreateMarketForm() {
               className="bg-secondary border-border"
               rows={3}
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="description">Description</Label>
+            <Textarea
+              id="description"
+              placeholder="Provide additional context about the market..."
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="bg-secondary border-border"
+              rows={3}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="category">Category</Label>
+              <select
+                id="category"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="flex h-9 w-full rounded-md border border-border bg-secondary px-3 py-1 text-sm text-foreground"
+              >
+                <option value="">Select a category</option>
+                {CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="imageUrl">Image URL</Label>
+              <Input
+                id="imageUrl"
+                placeholder="https://..."
+                value={imageUrl}
+                onChange={(e) => setImageUrl(e.target.value)}
+                className="bg-secondary border-border"
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -92,8 +144,13 @@ export function CreateMarketForm() {
           </div>
 
           {isConfirmed && txHash && (
-            <div className="rounded-lg bg-[var(--color-yes)]/10 p-4 text-sm">
+            <div className="rounded-lg bg-[var(--color-yes)]/10 p-4 text-sm space-y-1">
               <p className="text-[var(--color-yes)]">Market created!</p>
+              {marketId && (
+                <p className="text-muted-foreground text-xs break-all">
+                  Market ID: {marketId}
+                </p>
+              )}
               <a
                 href={`https://sepolia.arbiscan.io/tx/${txHash}`}
                 target="_blank"

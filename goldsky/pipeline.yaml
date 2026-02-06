@@ -7,7 +7,7 @@ sources:
     dataset_name: arbitrum_sepolia.raw_logs
     version: 1.0.0
     start_at: latest
-    filter: address = '0x3555b28e59e32b6d0d81de5ff123cbe73d518592' OR address = '0x67b830886a47bbb5f2019eb129e81f217ec56f09' OR address = '0x7402c579e7a661b3fda0553e511d14bf0aadcab9' OR address = '0x074af457ea1c58752705ce157f6892e5bbfc5988'
+    filter: address = '0x6d46708ed27814028e20d93ef4e9971935b95061' OR address = '0x1e6e8480b232ee254aa6de85b48f9c9db2bc431d' OR address = '0x0a64514c7f71b64430d8ae2706ea029e211a4aa0' OR address = '0xb9410cc8ca7008de2e1e1db109aa44ee4638093c'
 
 transforms:
   # ── MarketFactory: decode ──
@@ -26,7 +26,7 @@ transforms:
         transaction_hash,
         log_index
       FROM arb_sepolia_logs
-      WHERE address = '0x3555b28e59e32b6d0d81de5ff123cbe73d518592'
+      WHERE address = '0x6d46708ed27814028e20d93ef4e9971935b95061'
 
   market_factory_events:
     primary_key: id
@@ -58,7 +58,7 @@ transforms:
         transaction_hash,
         log_index
       FROM arb_sepolia_logs
-      WHERE address = '0x67b830886a47bbb5f2019eb129e81f217ec56f09'
+      WHERE address = '0x1e6e8480b232ee254aa6de85b48f9c9db2bc431d'
 
   order_queue_events:
     primary_key: id
@@ -90,7 +90,7 @@ transforms:
         transaction_hash,
         log_index
       FROM arb_sepolia_logs
-      WHERE address = '0x7402c579e7a661b3fda0553e511d14bf0aadcab9'
+      WHERE address = '0x0a64514c7f71b64430d8ae2706ea029e211a4aa0'
 
   private_token_events:
     primary_key: id
@@ -122,7 +122,7 @@ transforms:
         transaction_hash,
         log_index
       FROM arb_sepolia_logs
-      WHERE address = '0x074af457ea1c58752705ce157f6892e5bbfc5988'
+      WHERE address = '0xb9410cc8ca7008de2e1e1db109aa44ee4638093c'
 
   state_anchor_events:
     primary_key: id

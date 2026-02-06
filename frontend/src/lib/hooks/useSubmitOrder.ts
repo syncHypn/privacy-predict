@@ -1,6 +1,7 @@
 "use client";
 
-import { writeContract, waitForTransactionReceipt } from "wagmi/actions";
+import { writeContract, waitForTransactionReceipt, switchChain } from "wagmi/actions";
+import { arbitrumSepolia } from "wagmi/chains";
 import { wagmiConfig } from "../wagmi";
 import { ADDRESSES } from "../contracts/addresses";
 import { OrderQueueABI } from "../contracts/abis/OrderQueue";
@@ -35,6 +36,7 @@ export function useSubmitOrder() {
       setStep("processing");
 
       try {
+        await switchChain(wagmiConfig, { chainId: arbitrumSepolia.id });
         const keyPair = generateKeyPair();
 
         const orderPayload: OrderPayload = {
@@ -49,6 +51,7 @@ export function useSubmitOrder() {
         const encryptedBytes = encryptedOrderToBytes(encrypted);
 
         const txHash = await writeContract(wagmiConfig, {
+          chainId: arbitrumSepolia.id,
           address: ADDRESSES.OrderQueue as `0x${string}`,
           abi: OrderQueueABI,
           functionName: "submitOrder",

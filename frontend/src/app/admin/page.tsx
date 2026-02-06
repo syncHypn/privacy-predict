@@ -131,6 +131,7 @@ export default function AdminPage() {
 }
 
 function MetadataEditor({ market }: { market: EnrichedMarket }) {
+  const { getAccessToken } = usePrivy();
   const [imageUrl, setImageUrl] = useState(market.imageUrl ?? "");
   const [description, setDescription] = useState(market.description ?? "");
   const [category, setCategory] = useState(market.category ?? "other");
@@ -140,8 +141,9 @@ function MetadataEditor({ market }: { market: EnrichedMarket }) {
   async function handleSave() {
     setSaving(true);
     try {
-      const apiKey = prompt("Enter admin API key:");
-      if (!apiKey) {
+      const token = await getAccessToken();
+      if (!token) {
+        toast.error("Not authenticated");
         setSaving(false);
         return;
       }
@@ -153,7 +155,7 @@ function MetadataEditor({ market }: { market: EnrichedMarket }) {
           category,
           featured,
         },
-        apiKey
+        token
       );
       toast.success("Metadata updated");
     } catch (err) {

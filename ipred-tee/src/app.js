@@ -35,10 +35,10 @@ import { ChainReader } from './chainReader.js';
 const CONFIG = {
   // Contract addresses on Arbitrum Sepolia (from CLAUDE.md)
   contracts: {
-    privateToken: '0x7402c579e7a661b3fda0553e511d14bf0aadcab9',
-    marketFactory: '0x3555b28e59e32b6d0d81de5ff123cbe73d518592',
-    orderQueue: '0x67b830886a47bbb5f2019eb129e81f217ec56f09',
-    stateAnchor: '0x074af457ea1c58752705ce157f6892e5bbfc5988',
+    privateToken: '0x0a64514c7F71b64430D8AE2706ea029E211a4aA0',
+    marketFactory: '0x6d46708ED27814028e20D93ef4E9971935b95061',
+    orderQueue: '0x1E6e8480B232EE254AA6DE85b48f9c9Db2BC431D',
+    stateAnchor: '0xB9410CC8ca7008DE2E1e1dB109aa44eE4638093C',
   },
   // RPC endpoint (can be overridden via IEXEC_REQUESTER_SECRET_1)
   rpcUrl: process.env.RPC_URL || 'https://sepolia-rollup.arbitrum.io/rpc',

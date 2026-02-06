@@ -7,7 +7,7 @@ import { OrderQueueABI } from "./contracts/abis/OrderQueue";
 
 // ── Config ──
 
-const IAPP_ADDRESS = "0x27c122b98EF9e8Ec3ea0CF1AaD1b7dbb22949F6C";
+const IAPP_ADDRESS = "0xd9735E83383E5aeDC236Fb9697793baBF34868bC";
 const CALLBACK_ADDRESS = ADDRESSES.CallbackReceiver;
 const FLUSH_INTERVAL_MS = 60_000; // 1 minute
 const MIN_ORDERS_TO_FLUSH = 1;
@@ -107,7 +107,7 @@ async function flushAll() {
 
 async function triggerTEE(privateKey: string, marketId: string) {
   const ethProvider = utils.getSignerFromPrivateKey(
-    "https://bellecour.iex.ec",
+    "https://arbitrum-sepolia.iex.ec",
     privateKey
   );
   const iexec = new IExec({ ethProvider });
