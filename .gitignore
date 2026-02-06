@@ -33,7 +33,6 @@ Thumbs.db
 
 # Development and temporary files
 TEE_SETUP_CONTEXT.md
-ipred-tee/
 mock/
 orchestrator/
 broadcast/

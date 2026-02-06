@@ -94,18 +94,11 @@ User                    Contracts                 TEE
 
 | Contract | Address |
 |----------|---------|
-| **MarketFactory** | `0x2a5C3684a8dEe90D04F89212cb419b9742470d9B` |
-| **StateAnchor** | `0xA5Dc3B75157C08479f7375afD5B2b97279d711d6` |
-| **MockUSDC** | `0xA2ec86e965eE5932a282D500fFeB98D2908960C6` |
-| **ConfidentialUSDC** | `0x4932bc0B94751fcC0Fc02F5bca5233E2Dc592F2A` |
-| **PredictionMarket** | `0x07913F426e09dEF7c7081AE7bCE5EfC1f5c8e78f` |
-
-### Test Market Outcome Tokens
-
-| Token | Address | Market ID |
-|-------|---------|-----------|
-| **cYES** | `0xc9001569ccfb043Dc9a897A8F0a058c13D3994F6` | `0x89137be...` |
-| **cNO** | `0x87B03e010F105D0d87f5FF1edfd08418c9AB369d` | `0x89137be...` |
+| **MarketFactory** | `0x3555b28e59e32b6d0d81de5ff123cbe73d518592` |
+| **OrderQueue** | `0x67b830886a47bbb5f2019eb129e81f217ec56f09` |
+| **StateAnchor** | `0x074af457ea1c58752705ce157f6892e5bbfc5988` |
+| **PrivateToken** | `0x7402c579e7a661b3fda0553e511d14bf0aadcab9` |
+| **MockUSDC** | `0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d` |
 
 ### Configuration
 
@@ -113,8 +106,9 @@ User                    Contracts                 TEE
 |-----------|-------|
 | Network | Arbitrum Sepolia (Chain ID: 421614) |
 | RPC URL | `https://sepolia-rollup.arbitrum.io/rpc` |
-| TEE Address | `0x8Cdd26B54c3905BC86fEE5D2fBD7B1eeCd2B912B` |
-| TEE Public Key | `0x2ce7ebbf286531909ee2f4fc403b2fe44c30962f321709fd1b90d144ae58b351` |
+| TEE Wallet | `0x8Cdd26B54c3905BC86fEE5D2fBD7B1eeCd2B912B` |
+| iApp Address | `0xffad8b205e014988dfA6D51C03190b09A057BE90` |
+| Docker Image | `romthpt/ipred-tee:0.0.7-tee-scone-5.9.1-v16-prod` |
 
 ---
 
@@ -149,9 +143,6 @@ npm install -g @iexec/iapp
 
 3. **DockerHub account** (for pushing TEE images)
    - Required for `docker login`
-
-4. **RLC tokens** on Bellecour (for iExec deployment)
-   - Faucet: https://faucet.bellecour.iex.ec/
 
 ---
 
@@ -297,8 +288,8 @@ docker login
 ```bash
 cd ipred-tee
 
-# Deploy to Bellecour (iExec sidechain)
-iapp deploy --chain bellecour
+# Deploy to Arbitrum Sepolia (iExec network)
+iapp deploy
 ```
 
 Output:
@@ -309,27 +300,24 @@ Pushing to DockerHub...
 Sconifying for TEE...
 Deploying to iExec...
 
-iApp deployed at: 0x1234567890abcdef...
+iApp deployed at: 0xffad8b205e014988dfA6D51C03190b09A057BE90
 ```
 
 ### 4.3 Run on iExec Workers
 
 ```bash
-# Execute the deployed iApp
-iapp run <iapp-address> --chain bellecour
+# Execute the deployed iApp with market ID
+iapp run --args "<market-id>"
 
-# With arguments
-iapp run <iapp-address> --args "process_orders" --chain bellecour
-
-# With protected data
-iapp run <iapp-address> --protectedData <protected-data-address> --chain bellecour
+# Debug mode (local execution)
+iapp debug --args "<market-id>"
 ```
 
 ### 4.4 Debug Execution
 
 ```bash
 # Get execution logs
-iapp debug <taskId> --chain bellecour
+iapp debug <taskId>
 ```
 
 ---
@@ -342,26 +330,17 @@ iapp debug <taskId> --chain bellecour
 TEE_WALLET=0x8Cdd26B54c3905BC86fEE5D2fBD7B1eeCd2B912B
 
 # StateAnchor
-cast send 0xA5Dc3B75157C08479f7375afD5B2b97279d711d6 \
+cast send 0x074af457ea1c58752705ce157f6892e5bbfc5988 \
   "setTEEAddress(address)" $TEE_WALLET \
   --account sepolia --rpc-url $ARBITRUM_SEPOLIA_RPC_URL
 
-# PredictionMarket
-cast send 0x07913F426e09dEF7c7081AE7bCE5EfC1f5c8e78f \
+# OrderQueue
+cast send 0x67b830886a47bbb5f2019eb129e81f217ec56f09 \
   "setTEEAddress(address)" $TEE_WALLET \
   --account sepolia --rpc-url $ARBITRUM_SEPOLIA_RPC_URL
 
-# ConfidentialUSDC (uses setTEEApp, not setTEEAddress)
-cast send 0x4932bc0B94751fcC0Fc02F5bca5233E2Dc592F2A \
-  "setTEEApp(address)" $TEE_WALLET \
-  --account sepolia --rpc-url $ARBITRUM_SEPOLIA_RPC_URL
-
-# Outcome Tokens (uses setTEEApp, not setTEEAddress)
-cast send 0xc9001569ccfb043Dc9a897A8F0a058c13D3994F6 \
-  "setTEEApp(address)" $TEE_WALLET \
-  --account sepolia --rpc-url $ARBITRUM_SEPOLIA_RPC_URL
-
-cast send 0x87B03e010F105D0d87f5FF1edfd08418c9AB369d \
+# PrivateToken
+cast send 0x7402c579e7a661b3fda0553e511d14bf0aadcab9 \
   "setTEEApp(address)" $TEE_WALLET \
   --account sepolia --rpc-url $ARBITRUM_SEPOLIA_RPC_URL
 ```
@@ -376,8 +355,8 @@ cast send $TEE_WALLET --value 0.1ether \
 ### 5.3 Verify
 
 ```bash
-# Check TEE address on contracts
-cast call 0xA5Dc3B75157C08479f7375afD5B2b97279d711d6 \
+# Check TEE address on StateAnchor
+cast call 0x074af457ea1c58752705ce157f6892e5bbfc5988 \
   "teeAddress()(address)" --rpc-url $ARBITRUM_SEPOLIA_RPC_URL
 
 # Check TEE wallet balance
@@ -413,14 +392,11 @@ ARBITRUM_SEPOLIA_RPC_URL=https://sepolia-rollup.arbitrum.io/rpc
 PRIVATE_KEY=0x...
 
 # Contract addresses on Arbitrum Sepolia
-CUSDC_ADDRESS=0x4932bc0B94751fcC0Fc02F5bca5233E2Dc592F2A
-PREDICTION_MARKET_ADDRESS=0x07913F426e09dEF7c7081AE7bCE5EfC1f5c8e78f
-MARKET_FACTORY_ADDRESS=0x2a5C3684a8dEe90D04F89212cb419b9742470d9B
-CYES_ADDRESS=0xc9001569ccfb043Dc9a897A8F0a058c13D3994F6
-CNO_ADDRESS=0x87B03e010F105D0d87f5FF1edfd08418c9AB369d
-
-# Market ID
-MARKET_ID=0x89137be6227fe319a5df0f500ce2934379a7ecd8dfaa666e6698d38284a70880
+MARKET_FACTORY_ADDRESS=0x3555b28e59e32b6d0d81de5ff123cbe73d518592
+ORDER_QUEUE_ADDRESS=0x67b830886a47bbb5f2019eb129e81f217ec56f09
+STATE_ANCHOR_ADDRESS=0x074af457ea1c58752705ce157f6892e5bbfc5988
+PRIVATE_TOKEN_ADDRESS=0x7402c579e7a661b3fda0553e511d14bf0aadcab9
+MOCK_USDC_ADDRESS=0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d
 
 # Sealed key for encryption (base64 encoded, 32 bytes)
 # Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
@@ -549,9 +525,7 @@ Passed via `iapp run` command:
 
 | Parameter | Description | Example |
 |-----------|-------------|---------|
-| `--args` | Public arguments | `--args "buy 0x89137be..."` |
-| `--protectedData` | Encrypted user data | `--protectedData <address>` |
-| `--chain` | Target network | `--chain bellecour` |
+| `--args` | Public arguments (market ID) | `--args "<market-id>"` |
 
 ---
 
@@ -566,10 +540,10 @@ docker buildx inspect --bootstrap | grep -i platforms
 # If missing, update Docker or use OrbStack
 ```
 
-### "Insufficient RLC" on deploy
+### "Insufficient funds" on deploy
 
-Get RLC tokens from faucet:
-- https://faucet.bellecour.iex.ec/
+Ensure the iApp wallet has ETH on Arbitrum Sepolia:
+- Faucet: https://faucet.quicknode.com/arbitrum/sepolia
 
 Check balance:
 ```bash
@@ -588,28 +562,23 @@ iapp test --rebuild
 
 ### "NotTEE" error on contracts
 
-TEE wallet not authorized. Different contracts use different function names:
+TEE wallet not authorized:
 
 ```bash
-# For StateAnchor and PredictionMarket - use setTEEAddress
-cast send 0xA5Dc3B75157C08479f7375afD5B2b97279d711d6 \
+TEE_WALLET=0x8Cdd26B54c3905BC86fEE5D2fBD7B1eeCd2B912B
+
+# StateAnchor
+cast send 0x074af457ea1c58752705ce157f6892e5bbfc5988 \
   "setTEEAddress(address)" $TEE_WALLET \
   --account sepolia --rpc-url $ARBITRUM_SEPOLIA_RPC_URL
 
-cast send 0x07913F426e09dEF7c7081AE7bCE5EfC1f5c8e78f \
+# OrderQueue
+cast send 0x67b830886a47bbb5f2019eb129e81f217ec56f09 \
   "setTEEAddress(address)" $TEE_WALLET \
   --account sepolia --rpc-url $ARBITRUM_SEPOLIA_RPC_URL
 
-# For ConfidentialUSDC and Outcome Tokens - use setTEEApp
-cast send 0x4932bc0B94751fcC0Fc02F5bca5233E2Dc592F2A \
-  "setTEEApp(address)" $TEE_WALLET \
-  --account sepolia --rpc-url $ARBITRUM_SEPOLIA_RPC_URL
-
-cast send 0xc9001569ccfb043Dc9a897A8F0a058c13D3994F6 \
-  "setTEEApp(address)" $TEE_WALLET \
-  --account sepolia --rpc-url $ARBITRUM_SEPOLIA_RPC_URL
-
-cast send 0x87B03e010F105D0d87f5FF1edfd08418c9AB369d \
+# PrivateToken
+cast send 0x7402c579e7a661b3fda0553e511d14bf0aadcab9 \
   "setTEEApp(address)" $TEE_WALLET \
   --account sepolia --rpc-url $ARBITRUM_SEPOLIA_RPC_URL
 ```
@@ -618,7 +587,7 @@ cast send 0x87B03e010F105D0d87f5FF1edfd08418c9AB369d \
 
 ```bash
 # Get detailed logs for a task
-iapp debug <taskId> --chain bellecour
+iapp debug <taskId>
 ```
 
 ### Protected data issues

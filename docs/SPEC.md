@@ -714,14 +714,164 @@ Inconvenients:
 1. Plus simple a implementer
 2. Fournit un prix indicatif automatique
 3. Pas besoin de market makers externes
-4. Le TEE peut publier le prix sans reveler les volumes
+
+### Architecture de Prix (Implementation Actuelle)
+
+Le TEE ne met plus a jour les prix on-chain. A la place, nous utilisons une **architecture split state** ou les donnees sont separees selon leur niveau de confidentialite :
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                       Arweave Split State Storage                     │
+│                                                                       │
+│  ┌─────────────────────────────┐  ┌─────────────────────────────┐    │
+│  │     PUBLIC STATE            │  │     PRIVATE STATE           │    │
+│  │     (plaintext JSON)        │  │     (encrypted blob)        │    │
+│  │                             │  │                             │    │
+│  │  {                          │  │  NaCl secretbox encrypted:  │    │
+│  │    pools: {                 │  │  {                          │    │
+│  │      "0xMarketId": {        │  │    balances: {              │    │
+│  │        usdc: "1000000000",  │  │      "user:token": "..."    │    │
+│  │        yes: "909340000",    │  │    },                       │    │
+│  │        no: "956650000"      │  │    processedOrders: [...],  │    │
+│  │      }                      │  │    lastProcessedBlock: 123, │    │
+│  │    },                       │  │    version: 42              │    │
+│  │    version: 42,             │  │  }                          │    │
+│  │    timestamp: 1706918400    │  │                             │    │
+│  │  }                          │  └─────────────────────────────┘    │
+│  └─────────────────────────────┘                                     │
+│                                                                       │
+│  Tags Arweave:                                                        │
+│  - App-Name: "iPred-TEE"                                             │
+│  - Type: "public-state" | "private-state"                            │
+│  - Storage-Type: "public" | "private"                                │
+│  - Market-Id: "0x..."                                                │
+│  - State-Root: "0x..." (hash of combined state)                      │
+│  - Public-State-Tx: "..." (private state links to public)            │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+#### TEE Batch Processing Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                       TEE Batch Processing                           │
+│                                                                      │
+│  1. Fetch pending orders from OrderQueue contract                   │
+│  2. Load previous state from Arweave (split state)                  │
+│     a. Find latest public state via GraphQL                         │
+│     b. Find corresponding private state                             │
+│     c. Decrypt private state with sealed key                        │
+│     d. Merge: { ...privateState, pools: publicState.pools }         │
+│  3. Process orders -> Update pool reserves + balances               │
+│  4. Save to Arweave (split state):                                  │
+│     a. Export public state (pools only - plaintext)                 │
+│     b. Export private state (balances, processedOrders)             │
+│     c. Encrypt private state with sealed key                        │
+│     d. Upload both to Arweave with linked tags                      │
+│  5. Call batchUpdateBalances on PrivateToken contract               │
+│                                                                      │
+│  NO updatePrice() call needed!                                       │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+#### Client Price Fetching
+
+```typescript
+import { PriceClient, priceToPercent } from '@ipred/price-client';
+
+const client = new PriceClient();
+const prices = await client.getIndicativePrices(marketId);
+
+// Fetches from Arweave GraphQL:
+// 1. Query latest public-state transaction for market
+// 2. Download pool reserves
+// 3. Compute prices locally
+
+console.log(`YES: ${priceToPercent(prices.yes)}`);  // "YES: 51.3%"
+console.log(`NO: ${priceToPercent(prices.no)}`);    // "NO: 48.7%"
+
+// Price computation formula:
+// priceYes = (usdc/yes) / ((usdc/yes) + (usdc/no)) * 10000
+// priceNo = (usdc/no) / ((usdc/yes) + (usdc/no)) * 10000
+// Prices are on 10000 scale (5000 = 50%)
+```
+
+#### TEE State Recovery
+
+```typescript
+// TEE can fully recover state from Arweave
+async function recoverState(encryption, marketId) {
+  const arweave = new ArweaveStorage(wallet);
+
+  // 1. Find latest public state
+  const latestPublic = await arweave.findLatestPublicState(marketId);
+
+  // 2. Find corresponding private state
+  const privateTxId = await arweave.findPrivateStateForPublic(latestPublic.txId);
+
+  // 3. Download and decrypt
+  const publicState = await arweave.downloadPublicState(latestPublic.txId);
+  const encryptedPrivate = await arweave.downloadState(privateTxId);
+  const privateState = encryption.decryptState(encryptedPrivate);
+
+  // 4. Merge and load
+  const fullState = {
+    ...privateState,
+    pools: publicState.pools,
+  };
+
+  stateManager.loadState(fullState);
+}
+```
+
+#### Avantages de l'Architecture Split State
+
+| Avantage | Description |
+|----------|-------------|
+| **Gas savings** | Pas de mise a jour de prix on-chain (economie ~50k gas/batch) |
+| **Source unique** | Prix derives directement des reserves du pool |
+| **Decentralise** | Tout client peut calculer les prix depuis Arweave |
+| **Audit trail** | Historique complet des etats du pool sur Arweave |
+| **TEE Recovery** | Etat complet reconstructible depuis Arweave |
+| **Privacy preservee** | Balances restent chiffrees, seuls les pools sont publics |
+| **Stockage permanent** | Arweave garantit la persistance des donnees |
 
 ```
 Flow MVP:
 1. Creation du marche avec liquidite initiale (50/50)
 2. Users swap cUSDC <-> cYES ou cUSDC <-> cNO
-3. Le TEE publie le prix indicatif (derive des reserves)
-4. A la resolution, settlement base sur l'outcome
+3. TEE sauvegarde l'etat split sur Arweave apres chaque batch
+4. Clients fetching les prix depuis Arweave (pas de call on-chain)
+5. A la resolution, settlement base sur l'outcome
+```
+
+#### Testing avec ArLocal
+
+Pour le developpement et les tests, nous utilisons ArLocal (instance Arweave locale) :
+
+```bash
+# Lancer les tests avec ArLocal
+node ipred-tee/scripts/test-arweave-arlocal.js
+
+# Output:
+# - Starts ArLocal server on port 1984
+# - Generates test wallet with 1 AR
+# - Creates test state with pool + balances
+# - Uploads split state to ArLocal
+# - Verifies download and price computation
+# - Tests TEE state recovery
+```
+
+L'ArweaveStorage supporte une configuration custom pour ArLocal :
+
+```typescript
+const arweaveConfig = {
+  host: 'localhost',
+  port: 1984,
+  protocol: 'http',
+};
+
+const storage = new ArweaveStorage(wallet, arweaveConfig);
 ```
 
 ---

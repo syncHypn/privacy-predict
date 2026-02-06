@@ -1,0 +1,28 @@
+{
+  "name": "ipred-tee",
+  "version": "1.0.0",
+  "description": "iPred Confidential Prediction Market TEE iApp",
+  "main": "src/app.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/app.js",
+    "test": "node --test src/*.test.js",
+    "test:local": "IEXEC_OUT=./output node src/app.js"
+  },
+  "dependencies": {
+    "@iexec/dataprotector-deserializer": "^0.1.1",
+    "arweave": "^1.15.5",
+    "ethers": "^6.13.4",
+    "tweetnacl": "^1.0.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [
+    "ipred",
+    "prediction-market",
+    "tee",
+    "iexec",
+    "confidential"
+  ]
+}
