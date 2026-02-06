@@ -20,6 +20,7 @@ export default function MarketDetailPage({
   const { id } = use(params);
   const marketId = id as `0x${string}`;
   const { market, isLoading, error } = useMarket(marketId);
+  const [side, setSide] = useState<"YES" | "NO">("YES");
 
   if (isLoading) {
     return (
@@ -42,8 +43,6 @@ export default function MarketDetailPage({
       </div>
     );
   }
-
-  const [side, setSide] = useState<"YES" | "NO">("YES");
 
   const isExpired =
     BigInt(Math.floor(Date.now() / 1000)) >= market.resolutionTime;
