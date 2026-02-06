@@ -76,7 +76,7 @@ export default function MarketDetailPage({
           {/* Outcome Prices */}
           <div className="grid grid-cols-2 gap-4">
             <button onClick={() => setSide("YES")} className="text-left">
-              <Card className={`border-border bg-card cursor-pointer transition-all hover:shadow-[0_0_16px_rgba(34,197,94,0.25)] ${side === "YES" ? "ring-2 ring-[var(--color-yes)]/50 shadow-[0_0_12px_rgba(34,197,94,0.2)]" : ""}`}>
+              <Card className={`border-border bg-card cursor-pointer transition-all hover:shadow-[0_0_16px_rgba(91,140,90,0.25)] ${side === "YES" ? "ring-2 ring-[var(--color-yes)]/50 shadow-[0_0_12px_rgba(91,140,90,0.2)]" : ""}`}>
                 <CardContent className="py-4 text-center">
                   <p className="text-3xl font-bold text-[var(--color-yes)]">50%</p>
                   <p className="text-sm text-muted-foreground">{market.outcomes[0] || "Yes"}</p>
@@ -84,7 +84,7 @@ export default function MarketDetailPage({
               </Card>
             </button>
             <button onClick={() => setSide("NO")} className="text-left">
-              <Card className={`border-border bg-card cursor-pointer transition-all hover:shadow-[0_0_16px_rgba(239,68,68,0.25)] ${side === "NO" ? "ring-2 ring-[var(--color-no)]/50 shadow-[0_0_12px_rgba(239,68,68,0.2)]" : ""}`}>
+              <Card className={`border-border bg-card cursor-pointer transition-all hover:shadow-[0_0_16px_rgba(184,112,112,0.25)] ${side === "NO" ? "ring-2 ring-[var(--color-no)]/50 shadow-[0_0_12px_rgba(184,112,112,0.2)]" : ""}`}>
                 <CardContent className="py-4 text-center">
                   <p className="text-3xl font-bold text-[var(--color-no)]">50%</p>
                   <p className="text-sm text-muted-foreground">{market.outcomes[1] || "No"}</p>

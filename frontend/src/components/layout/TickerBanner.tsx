@@ -217,7 +217,7 @@ export function TickerBanner() {
       {/* News */}
       {hasNews && (
         <div className='py-1.5'>
-          <Marquee speed={45}>
+          <Marquee speed={80}>
             <div className='flex items-center gap-8 px-4'>
               {news.map((n, i) => (
                 <a

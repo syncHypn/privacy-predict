@@ -19,7 +19,7 @@ const ErrorIcon = () => (
 const Toaster = ({ ...props }: ToasterProps) => {
   return (
     <Sonner
-      theme="dark"
+      theme="system"
       className="toaster group"
       icons={{
         success: <SuccessIcon />,
@@ -30,9 +30,9 @@ const Toaster = ({ ...props }: ToasterProps) => {
           toast:
             "group-[.toaster]:bg-card group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:shadow-lg group-[.toaster]:rounded-xl group-[.toaster]:transition-shadow",
           success:
-            "group-[.toaster]:border-[var(--color-yes)]/20 hover:group-[.toaster]:shadow-[0_0_16px_rgba(34,197,94,0.25)]",
+            "group-[.toaster]:border-[var(--color-yes)]/20 hover:group-[.toaster]:shadow-[0_0_16px_rgba(91,140,90,0.25)]",
           error:
-            "group-[.toaster]:border-[var(--color-no)]/20 hover:group-[.toaster]:shadow-[0_0_16px_rgba(239,68,68,0.25)]",
+            "group-[.toaster]:border-[var(--color-no)]/20 hover:group-[.toaster]:shadow-[0_0_16px_rgba(184,112,112,0.25)]",
           description: "group-[.toaster]:text-muted-foreground",
         },
       }}

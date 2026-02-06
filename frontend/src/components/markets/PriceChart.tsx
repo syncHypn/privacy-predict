@@ -1,59 +1,68 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { createChart, type IChartApi, type ISeriesApi, ColorType, LineStyle, AreaSeries } from "lightweight-charts";
+import { useEffect, useRef, useState, useMemo } from "react";
+import {
+  createChart,
+  type IChartApi,
+  ColorType,
+  LineStyle,
+  AreaSeries,
+} from "lightweight-charts";
+import { usePublicClient } from "wagmi";
+import { parseAbiItem } from "viem";
+import { ADDRESSES } from "@/lib/contracts/addresses";
 
 type TimeRange = "1H" | "6H" | "1D" | "1W" | "1M" | "ALL";
+
+interface PricePoint {
+  time: number;
+  value: number;
+}
 
 interface PriceChartProps {
   marketId: string;
 }
 
-// Mock data generator — replace with real PriceUpdated event logs
-function generateMockData(range: TimeRange) {
+const PRICE_SCALE = 10000; // Contract uses 1e4 for price
+
+/** Build a flat 50% line spanning the selected time range */
+function buildFlatLine(range: TimeRange): PricePoint[] {
   const now = Math.floor(Date.now() / 1000);
+  let span: number;
   let points: number;
-  let interval: number;
 
   switch (range) {
     case "1H":
-      points = 60;
-      interval = 60;
+      span = 3600;
+      points = 12;
       break;
     case "6H":
-      points = 72;
-      interval = 300;
+      span = 21600;
+      points = 12;
       break;
     case "1D":
-      points = 96;
-      interval = 900;
+      span = 86400;
+      points = 24;
       break;
     case "1W":
-      points = 168;
-      interval = 3600;
+      span = 604800;
+      points = 14;
       break;
     case "1M":
-      points = 120;
-      interval = 21600;
+      span = 2592000;
+      points = 30;
       break;
     case "ALL":
-      points = 180;
-      interval = 43200;
+      span = 7776000; // 90 days
+      points = 30;
       break;
   }
 
-  let price = 50;
-  const data: { time: number; value: number }[] = [];
-
+  const interval = Math.floor(span / points);
+  const data: PricePoint[] = [];
   for (let i = points; i >= 0; i--) {
-    price += (Math.random() - 0.48) * 3;
-    price = Math.max(5, Math.min(95, price));
-    data.push({
-      time: now - i * interval,
-      value: Math.round(price * 100) / 100,
-    });
+    data.push({ time: now - i * interval, value: 50 });
   }
-
   return data;
 }
 
@@ -62,24 +71,128 @@ export function PriceChart({ marketId }: PriceChartProps) {
   const chartRef = useRef<IChartApi | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const seriesRef = useRef<any>(null);
-  const [range, setRange] = useState<TimeRange>("1D");
-  const [currentPrice, setCurrentPrice] = useState<number | null>(null);
+  const [range, setRange] = useState<TimeRange>("ALL");
+  const [currentPrice, setCurrentPrice] = useState<number>(50);
+  const [priceHistory, setPriceHistory] = useState<PricePoint[]>([]);
+  const [hasRealData, setHasRealData] = useState(false);
 
+  const publicClient = usePublicClient();
+  const predictionMarketAddr = ADDRESSES.PredictionMarket;
+
+  // Fetch PriceUpdated events from PredictionMarket (if deployed)
+  useEffect(() => {
+    if (!publicClient || !predictionMarketAddr) {
+      setHasRealData(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function fetchPriceEvents() {
+      try {
+        const logs = await publicClient!.getLogs({
+          address: predictionMarketAddr as `0x${string}`,
+          event: parseAbiItem(
+            "event PriceUpdated(bytes32 indexed marketId, uint256 priceYes, uint256 priceNo)"
+          ),
+          args: { marketId: marketId as `0x${string}` },
+          fromBlock: BigInt(0),
+          toBlock: "latest",
+        });
+
+        if (cancelled) return;
+
+        if (logs.length === 0) {
+          setHasRealData(false);
+          return;
+        }
+
+        // Get block timestamps for each log
+        const blocks = await Promise.all(
+          logs.map((log) =>
+            publicClient!.getBlock({ blockNumber: log.blockNumber })
+          )
+        );
+
+        if (cancelled) return;
+
+        const points: PricePoint[] = logs.map((log, i) => ({
+          time: Number(blocks[i].timestamp),
+          value:
+            Number((log.args as any).priceYes) / (PRICE_SCALE / 100),
+        }));
+
+        // Deduplicate by timestamp
+        const seen = new Set<number>();
+        const unique = points.filter((p) => {
+          if (seen.has(p.time)) return false;
+          seen.add(p.time);
+          return true;
+        });
+
+        setPriceHistory(unique);
+        setHasRealData(unique.length > 0);
+      } catch {
+        setHasRealData(false);
+      }
+    }
+
+    fetchPriceEvents();
+    return () => {
+      cancelled = true;
+    };
+  }, [publicClient, predictionMarketAddr, marketId]);
+
+  // Select data based on range and available history
+  const chartData = useMemo(() => {
+    if (!hasRealData) return buildFlatLine(range);
+
+    const now = Math.floor(Date.now() / 1000);
+    let cutoff: number;
+    switch (range) {
+      case "1H":
+        cutoff = now - 3600;
+        break;
+      case "6H":
+        cutoff = now - 21600;
+        break;
+      case "1D":
+        cutoff = now - 86400;
+        break;
+      case "1W":
+        cutoff = now - 604800;
+        break;
+      case "1M":
+        cutoff = now - 2592000;
+        break;
+      case "ALL":
+        cutoff = 0;
+        break;
+    }
+
+    const filtered = priceHistory.filter((p) => p.time >= cutoff);
+    return filtered.length > 0 ? filtered : buildFlatLine(range);
+  }, [hasRealData, priceHistory, range]);
+
+  // Render chart
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
     const container = chartContainerRef.current;
+    const isDark = document.documentElement.classList.contains("dark");
+    const gridColor = isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.06)";
+    const textColor = isDark ? "#A3A3A3" : "#737373";
 
     const chart = createChart(container, {
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
-        textColor: "#A3A3A3",
+        textColor,
         fontFamily: "var(--font-geist-sans), sans-serif",
         fontSize: 11,
       },
       grid: {
-        vertLines: { color: "rgba(255,255,255,0.04)" },
-        horzLines: { color: "rgba(255,255,255,0.04)", style: LineStyle.Dotted },
+        vertLines: { color: gridColor },
+        horzLines: { color: gridColor, style: LineStyle.Dotted },
       },
       width: container.clientWidth,
       height: 300,
@@ -93,8 +206,16 @@ export function PriceChart({ marketId }: PriceChartProps) {
         secondsVisible: false,
       },
       crosshair: {
-        vertLine: { color: "rgba(91,140,90,0.3)", width: 1, style: LineStyle.Dashed },
-        horzLine: { color: "rgba(91,140,90,0.3)", width: 1, style: LineStyle.Dashed },
+        vertLine: {
+          color: "rgba(91,140,90,0.3)",
+          width: 1,
+          style: LineStyle.Dashed,
+        },
+        horzLine: {
+          color: "rgba(91,140,90,0.3)",
+          width: 1,
+          style: LineStyle.Dashed,
+        },
       },
       handleScroll: false,
       handleScale: false,
@@ -105,33 +226,34 @@ export function PriceChart({ marketId }: PriceChartProps) {
       lineWidth: 2,
       topColor: "rgba(91,140,90,0.25)",
       bottomColor: "rgba(91,140,90,0.0)",
-      priceFormat: { type: "custom", formatter: (p: number) => `${p.toFixed(0)}%` },
+      priceFormat: {
+        type: "custom",
+        formatter: (p: number) => `${p.toFixed(0)}%`,
+      },
       crosshairMarkerBackgroundColor: "#5B8C5A",
       crosshairMarkerRadius: 5,
       crosshairMarkerBorderWidth: 2,
-      crosshairMarkerBorderColor: "#0A0A0A",
+      crosshairMarkerBorderColor: isDark ? "#111111" : "#FAFAFA",
     });
 
     chartRef.current = chart;
     seriesRef.current = series;
 
-    const data = generateMockData(range);
-    series.setData(data as any);
+    series.setData(chartData as any);
     chart.timeScale().fitContent();
 
-    if (data.length > 0) {
-      setCurrentPrice(data[data.length - 1].value);
+    if (chartData.length > 0) {
+      setCurrentPrice(chartData[chartData.length - 1].value);
     }
 
-    // Crosshair move for tooltip
     chart.subscribeCrosshairMove((param) => {
       if (param.seriesData.size > 0) {
         const val = param.seriesData.get(series);
         if (val && "value" in val) {
           setCurrentPrice(val.value as number);
         }
-      } else if (data.length > 0) {
-        setCurrentPrice(data[data.length - 1].value);
+      } else if (chartData.length > 0) {
+        setCurrentPrice(chartData[chartData.length - 1].value);
       }
     });
 
@@ -147,7 +269,7 @@ export function PriceChart({ marketId }: PriceChartProps) {
       chartRef.current = null;
       seriesRef.current = null;
     };
-  }, [range, marketId]);
+  }, [chartData, range]);
 
   const ranges: TimeRange[] = ["1H", "6H", "1D", "1W", "1M", "ALL"];
 
@@ -156,10 +278,15 @@ export function PriceChart({ marketId }: PriceChartProps) {
       {/* Header row */}
       <div className="flex items-end justify-between">
         <div>
-          {currentPrice !== null && (
-            <p className="text-2xl font-bold text-primary">
-              {currentPrice.toFixed(0)}%{" "}
-              <span className="text-sm font-normal text-muted-foreground">chance</span>
+          <p className="text-2xl font-bold text-primary">
+            {currentPrice.toFixed(0)}%{" "}
+            <span className="text-sm font-normal text-muted-foreground">
+              chance
+            </span>
+          </p>
+          {!hasRealData && (
+            <p className="text-xs text-muted-foreground">
+              No trading activity yet
             </p>
           )}
         </div>

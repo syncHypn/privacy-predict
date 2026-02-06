@@ -43,7 +43,6 @@ export function Header() {
               height={32}
               className="rounded-lg"
             />
-            <span className="text-lg font-bold text-foreground">iPred</span>
           </Link>
           <nav className="hidden items-center gap-6 md:flex">
             <Link
@@ -68,7 +67,9 @@ export function Header() {
             )}
           </nav>
         </div>
-        <WalletButton />
+        <div className="flex items-center gap-3">
+          <WalletButton />
+        </div>
       </div>
     </header>
   );
