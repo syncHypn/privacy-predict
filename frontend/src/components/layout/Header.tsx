@@ -52,26 +52,24 @@ export function Header() {
               Markets
             </Link>
             <Link
+              href="/activity"
+              className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Activity
+            </Link>
+            <Link
               href="/portfolio"
               className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
               Portfolio
             </Link>
             {isAdmin && (
-              <>
-                <Link
-                  href="/create"
-                  className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  Create
-                </Link>
-                <Link
-                  href="/admin"
-                  className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  Admin
-                </Link>
-              </>
+              <Link
+                href="/admin"
+                className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+              >
+                Admin
+              </Link>
             )}
           </nav>
         </div>

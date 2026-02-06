@@ -9,7 +9,7 @@ const CATEGORY_ICONS: Record<string, string> = {
   politics: "🏛",
   tech: "💻",
   entertainment: "🎬",
-  other: "📌",
+  other: "•",
 };
 
 export function CategoryBanner() {
@@ -56,7 +56,7 @@ export function CategoryBanner() {
                 : "bg-secondary text-muted-foreground hover:text-foreground"
             }`}
           >
-            <span className="mr-1">{CATEGORY_ICONS[cat] || "📌"}</span>
+            <span className="mr-1">{CATEGORY_ICONS[cat] || "•"}</span>
             {cat}
             <span className="ml-1 opacity-60">{count}</span>
           </button>

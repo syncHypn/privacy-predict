@@ -1,6 +1,7 @@
 "use client";
 
 import { writeContract, waitForTransactionReceipt, switchChain } from "wagmi/actions";
+import { pad, isHex } from "viem";
 import { arbitrumSepolia } from "wagmi/chains";
 import { wagmiConfig } from "../wagmi";
 import { ADDRESSES } from "../contracts/addresses";
@@ -11,9 +12,17 @@ import {
   generateKeyPair,
   type OrderPayload,
 } from "../encryption";
+import { getGasOverrides } from "../gas";
 import { useTEEPublicKey } from "./useTEEPublicKey";
 import { useState, useCallback } from "react";
 import { toast } from "sonner";
+
+/** Ensure a hex string is a valid bytes32 (left-padded to 32 bytes) */
+function toBytes32(value: string): `0x${string}` {
+  const hex = value.startsWith("0x") ? value : `0x${value}`;
+  if (!isHex(hex)) throw new Error(`Invalid hex value: ${value}`);
+  return pad(hex as `0x${string}`, { size: 32 });
+}
 
 type Step = "idle" | "processing" | "done";
 
@@ -50,12 +59,16 @@ export function useSubmitOrder() {
         const encrypted = encryptOrder(orderPayload, teePublicKey, keyPair.secretKey);
         const encryptedBytes = encryptedOrderToBytes(encrypted);
 
+        const normalizedMarketId = toBytes32(marketId);
+
+        const gas = await getGasOverrides();
         const txHash = await writeContract(wagmiConfig, {
           chainId: arbitrumSepolia.id,
           address: ADDRESSES.OrderQueue as `0x${string}`,
           abi: OrderQueueABI,
           functionName: "submitOrder",
-          args: [marketId, encryptedBytes],
+          args: [normalizedMarketId, encryptedBytes],
+          ...gas,
         });
 
         const receipt = await waitForTransactionReceipt(wagmiConfig, {

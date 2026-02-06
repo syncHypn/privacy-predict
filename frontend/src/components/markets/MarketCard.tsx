@@ -27,7 +27,7 @@ const CATEGORY_ICONS: Record<string, string> = {
   politics: "🏛",
   tech: "💻",
   entertainment: "🎬",
-  other: "📌",
+  other: "•",
 };
 
 export function MarketCard({ market }: MarketCardProps) {
@@ -60,7 +60,7 @@ export function MarketCard({ market }: MarketCardProps) {
             />
           ) : (
             <div className="flex h-full items-center justify-center text-4xl text-muted-foreground/30">
-              {CATEGORY_ICONS[market.category || "other"] || "📌"}
+              {CATEGORY_ICONS[market.category || "other"] || "•"}
             </div>
           )}
           {/* Overlay badges */}

@@ -6,6 +6,7 @@ import { arbitrumSepolia } from "wagmi/chains";
 import { wagmiConfig } from "../wagmi";
 import { ADDRESSES } from "../contracts/addresses";
 import { MarketFactoryABI } from "../contracts/abis/MarketFactory";
+import { getGasOverrides } from "../gas";
 import { useState, useCallback } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { toast } from "sonner";
@@ -36,12 +37,14 @@ export function useCreateMarket() {
       try {
         await switchChain(wagmiConfig, { chainId: arbitrumSepolia.id });
 
+        const gas = await getGasOverrides();
         const hash = await writeContract(wagmiConfig, {
           chainId: arbitrumSepolia.id,
           address: ADDRESSES.MarketFactory as `0x${string}`,
           abi: MarketFactoryABI,
           functionName: "createMarket",
           args: [question, outcomes, resolutionTime],
+          ...gas,
         });
 
         setTxHash(hash);

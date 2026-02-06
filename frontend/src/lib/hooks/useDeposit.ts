@@ -6,6 +6,7 @@ import { wagmiConfig } from "../wagmi";
 import { ADDRESSES } from "../contracts/addresses";
 import { ERC20ABI } from "../contracts/abis/ERC20";
 import { PrivateTokenABI } from "../contracts/abis/PrivateToken";
+import { getGasOverrides } from "../gas";
 import { parseUSDC } from "../utils";
 import { useState, useCallback } from "react";
 import { toast } from "sonner";
@@ -23,12 +24,15 @@ export function useDeposit() {
 
       try {
         await switchChain(wagmiConfig, { chainId: arbitrumSepolia.id });
+        const gas = await getGasOverrides();
+
         const approveHash = await writeContract(wagmiConfig, {
           chainId: arbitrumSepolia.id,
           address: ADDRESSES.MockUSDC as `0x${string}`,
           abi: ERC20ABI,
           functionName: "approve",
           args: [ADDRESSES.PrivateToken as `0x${string}`, amountBigInt],
+          ...gas,
         });
 
         const approveReceipt = await waitForTransactionReceipt(wagmiConfig, {
@@ -43,12 +47,14 @@ export function useDeposit() {
           setStep("depositing");
         }
 
+        const gas2 = await getGasOverrides();
         const depositHash = await writeContract(wagmiConfig, {
           chainId: arbitrumSepolia.id,
           address: ADDRESSES.PrivateToken as `0x${string}`,
           abi: PrivateTokenABI,
           functionName: "deposit",
           args: [amountBigInt],
+          ...gas2,
         });
 
         const depositReceipt = await waitForTransactionReceipt(wagmiConfig, {

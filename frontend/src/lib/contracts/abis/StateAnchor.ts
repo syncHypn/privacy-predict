@@ -1,6 +1,17 @@
 export const StateAnchorABI = [
   {
     type: "function",
+    name: "commitRoot",
+    inputs: [
+      { name: "newRoot", type: "bytes32", internalType: "bytes32" },
+      { name: "matchId", type: "bytes32", internalType: "bytes32" },
+      { name: "teeAttestation", type: "bytes", internalType: "bytes" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
     name: "currentRoot",
     inputs: [],
     outputs: [{ name: "", type: "bytes32", internalType: "bytes32" }],

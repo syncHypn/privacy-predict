@@ -7,6 +7,7 @@ import { ADDRESSES } from "../contracts/addresses";
 import { PrivateTokenABI } from "../contracts/abis/PrivateToken";
 import { encryptWithdrawal, generateKeyPair } from "../encryption";
 import { parseUSDC } from "../utils";
+import { getGasOverrides } from "../gas";
 import { useTEEPublicKey } from "./useTEEPublicKey";
 import { useState, useCallback } from "react";
 import { toast } from "sonner";
@@ -36,12 +37,14 @@ export function useWithdraw() {
           keyPair.secretKey
         );
 
+        const gas = await getGasOverrides();
         const txHash = await writeContract(wagmiConfig, {
           chainId: arbitrumSepolia.id,
           address: ADDRESSES.PrivateToken as `0x${string}`,
           abi: PrivateTokenABI,
           functionName: "requestWithdrawal",
           args: [commitmentHash, encryptedAmount],
+          ...gas,
         });
 
         const receipt = await waitForTransactionReceipt(wagmiConfig, {

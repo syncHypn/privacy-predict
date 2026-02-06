@@ -17,6 +17,18 @@ const RANGE_INTERVALS: Record<TimeRange, string> = {
   ALL: "10 years",
 };
 
+export async function insertPriceSnapshot(
+  marketId: string,
+  yesPrice: number,
+  noPrice: number
+) {
+  const sql = getDb();
+  await sql`
+    INSERT INTO price_snapshots (market_id, timestamp, yes_price, no_price)
+    VALUES (${marketId}, now(), ${yesPrice}, ${noPrice})
+  `;
+}
+
 export async function getPriceHistory(
   marketId: string,
   range: TimeRange = "ALL"
