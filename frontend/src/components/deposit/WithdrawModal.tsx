@@ -50,7 +50,7 @@ export function WithdrawModal() {
             </label>
             <Input
               type="number"
-              placeholder="100.00"
+              placeholder="0.00"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               min="0"
@@ -78,8 +78,8 @@ export function WithdrawModal() {
           </div>
 
           <Button
-            onClick={handleWithdraw}
-            disabled={isProcessing || !amount || parseFloat(amount) <= 0}
+            onClick={step === "done" ? () => setOpen(false) : handleWithdraw}
+            disabled={isProcessing || (step !== "done" && (!amount || parseFloat(amount) <= 0))}
             className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
           >
             {isProcessing

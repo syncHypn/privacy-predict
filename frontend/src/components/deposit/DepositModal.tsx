@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { useDeposit } from "@/lib/hooks/useDeposit";
 import { useUSDCBalance } from "@/lib/hooks/useUSDCBalance";
 import { useAppStore } from "@/store/useAppStore";
-import { parseUSDC } from "@/lib/utils";
+import { parseUSDC, formatUSDC } from "@/lib/utils";
 import { toast } from "sonner";
 
 export function DepositModal() {
@@ -58,12 +58,24 @@ export function DepositModal() {
 
         <div className='space-y-4'>
           <div className='space-y-2'>
-            <label className='text-sm font-medium text-muted-foreground'>
-              Amount (USDC)
-            </label>
+            <div className='flex items-center justify-between'>
+              <label className='text-sm font-medium text-muted-foreground'>
+                Amount (USDC)
+              </label>
+              {balance !== undefined && (
+                <button
+                  type='button'
+                  onClick={() => setAmount(formatUSDC(balance))}
+                  disabled={isProcessing}
+                  className='text-xs text-primary hover:text-primary/80 disabled:opacity-50'
+                >
+                  Max: {formatUSDC(balance)}
+                </button>
+              )}
+            </div>
             <Input
               type='number'
-              placeholder='100.00'
+              placeholder='0.00'
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               min='0'
@@ -100,8 +112,8 @@ export function DepositModal() {
           )}
 
           <Button
-            onClick={handleDeposit}
-            disabled={isProcessing || !amount || parseFloat(amount) <= 0}
+            onClick={step === 'done' ? () => setOpen(false) : handleDeposit}
+            disabled={isProcessing || (step !== 'done' && (!amount || parseFloat(amount) <= 0))}
             className='w-full bg-primary text-primary-foreground hover:bg-primary/90'
           >
             {isProcessing

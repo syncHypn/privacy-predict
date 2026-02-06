@@ -93,20 +93,20 @@ export function PriceChart({ marketId }: PriceChartProps) {
         secondsVisible: false,
       },
       crosshair: {
-        vertLine: { color: "rgba(252,209,90,0.3)", width: 1, style: LineStyle.Dashed },
-        horzLine: { color: "rgba(252,209,90,0.3)", width: 1, style: LineStyle.Dashed },
+        vertLine: { color: "rgba(91,140,90,0.3)", width: 1, style: LineStyle.Dashed },
+        horzLine: { color: "rgba(91,140,90,0.3)", width: 1, style: LineStyle.Dashed },
       },
       handleScroll: false,
       handleScale: false,
     });
 
     const series = chart.addSeries(AreaSeries, {
-      lineColor: "#FCD15A",
+      lineColor: "#5B8C5A",
       lineWidth: 2,
-      topColor: "rgba(252,209,90,0.25)",
-      bottomColor: "rgba(252,209,90,0.0)",
+      topColor: "rgba(91,140,90,0.25)",
+      bottomColor: "rgba(91,140,90,0.0)",
       priceFormat: { type: "custom", formatter: (p: number) => `${p.toFixed(0)}%` },
-      crosshairMarkerBackgroundColor: "#FCD15A",
+      crosshairMarkerBackgroundColor: "#5B8C5A",
       crosshairMarkerRadius: 5,
       crosshairMarkerBorderWidth: 2,
       crosshairMarkerBorderColor: "#0A0A0A",

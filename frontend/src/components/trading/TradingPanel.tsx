@@ -14,6 +14,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useSubmitOrder } from "@/lib/hooks/useSubmitOrder";
+import { useUSDCBalance } from "@/lib/hooks/useUSDCBalance";
+import { formatUSDC } from "@/lib/utils";
 
 interface TradingPanelProps {
   marketId: `0x${string}`;
@@ -21,11 +23,13 @@ interface TradingPanelProps {
 }
 
 export function TradingPanel({ marketId, question }: TradingPanelProps) {
-  const { authenticated, login } = usePrivy();
+  const { authenticated, login, user } = usePrivy();
   const [side, setSide] = useState<"YES" | "NO">("YES");
   const [amount, setAmount] = useState("");
   const [showConfirm, setShowConfirm] = useState(false);
   const { submitOrder, isProcessing, step } = useSubmitOrder();
+  const address = user?.wallet?.address as `0x${string}` | undefined;
+  const { balance } = useUSDCBalance(address);
 
   function handleSubmit() {
     if (!authenticated) {
@@ -77,9 +81,20 @@ export function TradingPanel({ marketId, question }: TradingPanelProps) {
 
           {/* Amount Input */}
           <div className="space-y-2">
-            <label className="text-sm font-medium text-muted-foreground">
-              Amount (USDC)
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium text-muted-foreground">
+                Amount (USDC)
+              </label>
+              {balance !== undefined && authenticated && (
+                <button
+                  type="button"
+                  onClick={() => setAmount(formatUSDC(balance))}
+                  className="text-xs text-primary hover:text-primary/80"
+                >
+                  Max: {formatUSDC(balance)}
+                </button>
+              )}
+            </div>
             <Input
               type="number"
               placeholder="0.00"

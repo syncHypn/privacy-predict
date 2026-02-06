@@ -3,15 +3,16 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useUserOrders } from "@/lib/hooks/useUserOrders";
-import { shortenAddress } from "@/lib/utils";
 import type { EncryptedOrder } from "@/types/market";
+
+const EXPLORER_URL = "https://sepolia.arbiscan.io";
 
 interface OrderHistoryProps {
   address: `0x${string}` | undefined;
 }
 
 export function OrderHistory({ address }: OrderHistoryProps) {
-  const { orders, isLoading } = useUserOrders(address);
+  const { orders, txHashMap, isLoading } = useUserOrders(address);
 
   return (
     <Card className="border-border bg-card">
@@ -38,7 +39,11 @@ export function OrderHistory({ address }: OrderHistoryProps) {
               <span>Status</span>
             </div>
             {orders.map((order) => (
-              <OrderRow key={order.orderId} order={order} />
+              <OrderRow
+                key={order.orderId}
+                order={order}
+                txHash={txHashMap[order.orderId]}
+              />
             ))}
           </div>
         )}
@@ -47,11 +52,23 @@ export function OrderHistory({ address }: OrderHistoryProps) {
   );
 }
 
-function OrderRow({ order }: { order: EncryptedOrder }) {
+function OrderRow({
+  order,
+  txHash,
+}: {
+  order: EncryptedOrder;
+  txHash?: `0x${string}`;
+}) {
   const timestamp = new Date(Number(order.timestamp) * 1000);
 
-  return (
-    <div className="grid grid-cols-4 gap-4 py-2 text-sm">
+  const row = (
+    <div
+      className={`grid grid-cols-4 gap-4 py-2 text-sm rounded-md px-2 -mx-2 ${
+        txHash
+          ? "cursor-pointer transition-colors hover:bg-secondary/50"
+          : ""
+      }`}
+    >
       <span className="font-mono text-xs text-muted-foreground">
         {order.orderId.slice(0, 10)}...
       </span>
@@ -61,7 +78,40 @@ function OrderRow({ order }: { order: EncryptedOrder }) {
       <span className="text-muted-foreground">
         {timestamp.toLocaleDateString()}
       </span>
-      <span className="text-primary">Encrypted</span>
+      <span className="flex items-center gap-1 text-primary">
+        Encrypted
+        {txHash && (
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            className="text-muted-foreground"
+          >
+            <path
+              d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6m4-3h6v6m-11 5L21 3"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        )}
+      </span>
     </div>
   );
+
+  if (txHash) {
+    return (
+      <a
+        href={`${EXPLORER_URL}/tx/${txHash}`}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        {row}
+      </a>
+    );
+  }
+
+  return row;
 }

@@ -57,31 +57,31 @@
   --card-foreground: #F5F5F5;
   --popover: #141414;
   --popover-foreground: #F5F5F5;
-  --primary: #FCD15A;
-  --primary-foreground: #0A0A0A;
+  --primary: #5B8C5A;
+  --primary-foreground: #F5F5F5;
   --secondary: #1E1E1E;
   --secondary-foreground: #F5F5F5;
   --muted: #1E1E1E;
   --muted-foreground: #A3A3A3;
-  --accent: #FCD15A;
-  --accent-foreground: #0A0A0A;
+  --accent: #5B8C5A;
+  --accent-foreground: #F5F5F5;
   --destructive: #ef4444;
   --border: #2A2A2A;
   --input: #2A2A2A;
-  --ring: #FCD15A;
-  --chart-1: #FCD15A;
+  --ring: #5B8C5A;
+  --chart-1: #5B8C5A;
   --chart-2: #22c55e;
   --chart-3: #ef4444;
   --chart-4: #3b82f6;
   --chart-5: #a855f7;
   --sidebar: #141414;
   --sidebar-foreground: #F5F5F5;
-  --sidebar-primary: #FCD15A;
-  --sidebar-primary-foreground: #0A0A0A;
+  --sidebar-primary: #5B8C5A;
+  --sidebar-primary-foreground: #F5F5F5;
   --sidebar-accent: #1E1E1E;
   --sidebar-accent-foreground: #F5F5F5;
   --sidebar-border: #2A2A2A;
-  --sidebar-ring: #FCD15A;
+  --sidebar-ring: #5B8C5A;
 }
 
 @layer base {
@@ -91,6 +91,18 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* Hide number input arrows — outside @layer for max specificity */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield !important;
+  appearance: textfield !important;
 }
 
 /* Toast hover glow */
