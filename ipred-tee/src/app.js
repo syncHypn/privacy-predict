@@ -68,23 +68,44 @@ const main = async () => {
 
     // Parse command line arguments
     // Expected: marketId as first argument
-    const args = process.argv.slice(2);
-    console.log(`Received ${args.length} args:`, args);
+    // Use format: "market=0x..." or "0x..." (hex string)
+    const rawArgs = process.argv.slice(2);
+    console.log(`Received ${rawArgs.length} raw args:`, rawArgs);
 
-    if (args.length === 0) {
-      throw new Error('MISSING_ARGS: At least one argument required (market ID or "balance")');
-    }
+    const argsString = rawArgs.join(' ').trim();
+      if (!argsString) {
+        throw new Error('MISSING_ARGS: At least one argument required. Use: --args "market=0x..." or --args "balance <address> <sig> <pubkey>"');
+      }
 
-    // ── Balance query mode ──
-    if (args[0] === 'balance') {
-      result = await handleBalanceQuery(args, IEXEC_OUT);
-      computedJsonObj = {
-        'deterministic-output-path': path.join(IEXEC_OUT, 'result.json'),
-      };
-      return;
-    }
+      // ── Balance query mode ──
+      if (argsString.startsWith('balance')) {
+        const parts = argsString.split(' ');
+        result = await handleBalanceQuery(parts, IEXEC_OUT);
+        computedJsonObj = {
+          'deterministic-output-path': path.join(IEXEC_OUT, 'result.json'),
+        };
+        return;
+      }
 
-    const marketId = args[0];
+      // Parse key=value args
+      let marketId = null;
+      for (const arg of argsString.split(' ')) {
+        if (arg.startsWith('market=')) {
+          marketId = arg.substring(7); // Remove "market=" prefix
+          break;
+        }
+      }
+
+      // Fallback: use first arg if no market= prefix found
+      if (!marketId) {
+        marketId = argsString.split(' ')[0];
+      }
+
+      // Validate marketId format
+      if (!marketId || marketId.length === 0) {
+        throw new Error('INVALID_MARKET_ID: Market ID is empty');
+      }
+
     console.log(`Processing market: ${marketId}`);
 
     // Get sealed key from TEE secrets
@@ -98,12 +119,16 @@ const main = async () => {
     const amm = new ConfidentialAMM(stateManager);
 
     // Load previous state or initialize
+    // Input file convention: #3=public-state.json, #4=private-state.enc
     await loadOrInitializeState(stateManager, sealedKey, marketId);
 
-    // Process deposits from input files
+    // Process deposits from input files (#1=deposits.json)
     await processDeposits(stateManager);
 
-    // Process pending orders from input files
+    // Process withdrawals from input files (#5=withdrawals.json)
+    const { withdrawalsProcessed, validatedWithdrawals } = await processWithdrawals(stateManager, marketId);
+
+    // Process pending orders from input files (#2=orders.json)
     const ordersProcessed = await processOrders(amm, stateManager, marketId);
 
     // Update state version
@@ -129,6 +154,15 @@ const main = async () => {
     );
     console.log('Private state written (encrypted)');
 
+    // Write withdrawal data for relayer (to call processWithdrawal on-chain)
+    if (validatedWithdrawals.length > 0) {
+      await fs.writeFile(
+        path.join(IEXEC_OUT, 'withdrawal-data.json'),
+        JSON.stringify(validatedWithdrawals, null, 2)
+      );
+      console.log(`Withdrawal data written (${validatedWithdrawals.length} withdrawals)`);
+    }
+
     // Write state metadata
     const metadata = {
       marketId,
@@ -136,6 +170,7 @@ const main = async () => {
       version: stateManager.getVersion(),
       timestamp: Date.now(),
       ordersProcessed,
+      withdrawalsProcessed,
     };
     await fs.writeFile(
       path.join(IEXEC_OUT, 'state-metadata.json'),
@@ -152,14 +187,28 @@ const main = async () => {
       encryptedBalances,
       stateRoot,
       matchId,
+      withdrawals: validatedWithdrawals,
     });
 
-    // Write callback data
+    // Write callback data (legacy JSON format for manual relayer)
     await fs.writeFile(
       path.join(IEXEC_OUT, 'callback-data.json'),
       JSON.stringify(callbackData, null, 2)
     );
     console.log('Callback data written');
+
+    // ABI-encode lightweight callback payload for iExec on-chain callback
+    // Only state root + attestation (fits within 200k gas limit)
+    // Balance updates are applied separately via applyBalanceUpdate()
+    // Schema: (bytes32 stateRoot, bytes32 matchId, bytes attestation)
+    const abiCoder = new ethers.AbiCoder();
+    const attestationBytes = ethers.toUtf8Bytes(callbackData.attestation);
+
+    const abiEncodedCallback = abiCoder.encode(
+      ['bytes32', 'bytes32', 'bytes'],
+      [stateRoot, matchId, attestationBytes]
+    );
+    console.log(`ABI-encoded callback: ${abiEncodedCallback.length} bytes`);
 
     // Build result summary
     result = {
@@ -168,6 +217,7 @@ const main = async () => {
       stateRoot,
       version: stateManager.getVersion(),
       ordersProcessed,
+      withdrawalsProcessed,
       usersUpdated: users.length,
       prices: stateManager.getIndicativePrices(marketId),
       timestamp: Date.now(),
@@ -185,8 +235,10 @@ const main = async () => {
     console.log(`Prices:`, result.prices);
 
     // Build computed.json for iExec (REQUIRED)
+    // callback-data: ABI-encoded bytes sent to CallbackReceiver.receiveResult()
     computedJsonObj = {
       'deterministic-output-path': path.join(IEXEC_OUT, 'result.json'),
+      'callback-data': abiEncodedCallback,
     };
 
   } catch (e) {
@@ -243,34 +295,60 @@ function getInputDir() {
  * @param {string} pattern - Filename to look for (e.g., 'orders.json')
  * @returns {Promise<string | null>}
  */
-async function readInputFile(pattern) {
+async function readInputFile(pattern, expectedIndex = null) {
   const inputDir = getInputDir();
+  console.log(`[readInputFile] Looking for "${pattern}" (index=${expectedIndex}) in dir: ${inputDir}`);
+  console.log(`[readInputFile] IEXEC_IN=${process.env.IEXEC_IN}, IEXEC_INPUT_FILES_FOLDER=${process.env.IEXEC_INPUT_FILES_FOLDER}`);
+  const inputCount = parseInt(process.env.IEXEC_INPUT_FILES_NUMBER || '0');
+  console.log(`[readInputFile] IEXEC_INPUT_FILES_NUMBER=${inputCount}`);
   if (!inputDir) return null;
 
-  // Check via environment variables first (old pattern)
-  const inputCount = parseInt(process.env.IEXEC_INPUT_FILES_NUMBER || '0');
+  // Strategy 1: Read by expected index (most reliable for TEE)
+  if (expectedIndex && inputCount >= expectedIndex) {
+    const fileName = process.env[`IEXEC_INPUT_FILE_NAME_${expectedIndex}`];
+    console.log(`[readInputFile] Index ${expectedIndex} -> fileName=${fileName}`);
+    if (fileName) {
+      const filePath = path.join(inputDir, fileName);
+      try {
+        const content = await fs.readFile(filePath, 'utf8');
+        console.log(`[readInputFile] Read by index ${expectedIndex}: ${filePath} (${content.length} bytes)`);
+        return content;
+      } catch (e) {
+        console.log(`[readInputFile] Failed to read by index: ${e.message}`);
+      }
+    }
+  }
+
+  // Strategy 2: Match by filename pattern in env vars
   for (let i = 1; i <= inputCount; i++) {
     const fileName = process.env[`IEXEC_INPUT_FILE_NAME_${i}`];
+    console.log(`[readInputFile] IEXEC_INPUT_FILE_NAME_${i}=${fileName}`);
     if (fileName && fileName.includes(pattern)) {
       const filePath = path.join(inputDir, fileName);
       try {
-        return await fs.readFile(filePath, 'utf8');
-      } catch {
+        const content = await fs.readFile(filePath, 'utf8');
+        console.log(`[readInputFile] Found "${pattern}" at ${filePath} (${content.length} bytes)`);
+        return content;
+      } catch (e) {
+        console.log(`[readInputFile] Failed to read ${filePath}: ${e.message}`);
         continue;
       }
     }
   }
 
-  // Try direct file access (new pattern)
+  // Strategy 3: Directory listing with pattern match
   try {
     const files = await fs.readdir(inputDir);
+    console.log(`[readInputFile] Directory listing of ${inputDir}:`, files);
     for (const file of files) {
       if (file.includes(pattern)) {
-        return await fs.readFile(path.join(inputDir, file), 'utf8');
+        const content = await fs.readFile(path.join(inputDir, file), 'utf8');
+        console.log(`[readInputFile] Found "${pattern}" via listing at ${file} (${content.length} bytes)`);
+        return content;
       }
     }
-  } catch {
-    // Directory doesn't exist or is empty
+  } catch (e) {
+    console.log(`[readInputFile] Cannot read dir ${inputDir}: ${e.message}`);
   }
 
   return null;
@@ -323,8 +401,8 @@ async function getSealedKey() {
  * @param {string} marketId
  */
 async function loadOrInitializeState(stateManager, sealedKey, marketId) {
-  // Try to load public state
-  const publicStateContent = await readInputFile('public-state.json');
+  // Try to load public state (input file #3 if provided)
+  const publicStateContent = await readInputFile('public-state.json', 3);
   if (publicStateContent) {
     try {
       const publicState = JSON.parse(publicStateContent);
@@ -335,8 +413,8 @@ async function loadOrInitializeState(stateManager, sealedKey, marketId) {
     }
   }
 
-  // Try to load private state
-  const privateStateContent = await readInputFile('private-state.enc');
+  // Try to load private state (input file #4 if provided)
+  const privateStateContent = await readInputFile('private-state.enc', 4);
   if (privateStateContent) {
     try {
       const { decryptState } = await import('./encryption.js');
@@ -363,7 +441,7 @@ async function loadOrInitializeState(stateManager, sealedKey, marketId) {
  * @param {StateManager} stateManager
  */
 async function processDeposits(stateManager) {
-  const depositsContent = await readInputFile('deposits.json');
+  const depositsContent = await readInputFile('deposits.json', 1);
   if (!depositsContent) {
     console.log('No deposits file found');
     return;
@@ -383,6 +461,76 @@ async function processDeposits(stateManager) {
 }
 
 /**
+ * Processes withdrawal requests from input files
+ * @param {StateManager} stateManager
+ * @param {string} marketId
+ * @returns {Promise<{ withdrawalsProcessed: number, validatedWithdrawals: Array }>}
+ */
+async function processWithdrawals(stateManager, marketId) {
+  const withdrawalsContent = await readInputFile('withdrawals.json', 5);
+  if (!withdrawalsContent) {
+    console.log('No withdrawals file found');
+    return { withdrawalsProcessed: 0, validatedWithdrawals: [] };
+  }
+
+  let withdrawalsProcessed = 0;
+  const validatedWithdrawals = [];
+
+  try {
+    const withdrawals = JSON.parse(withdrawalsContent);
+    console.log(`Processing ${withdrawals.length} withdrawal requests`);
+
+    for (const withdrawal of withdrawals) {
+      const { withdrawalId, user, amount: amountStr } = withdrawal;
+
+      // Skip already processed withdrawals (reuse order tracking)
+      if (stateManager.isOrderProcessed(withdrawalId)) {
+        console.log(`Skipping already processed withdrawal ${withdrawalId}`);
+        continue;
+      }
+
+      try {
+        const amount = BigInt(amountStr);
+
+        // Validate sufficient cUSDC balance
+        const balance = stateManager.getBalance(user, 'cUSDC');
+        if (balance < amount) {
+          console.error(`Withdrawal ${withdrawalId} rejected: ${user} has ${balance} cUSDC, needs ${amount}`);
+          continue;
+        }
+
+        // Deduct balance
+        stateManager.subtractBalance(user, 'cUSDC', amount);
+
+        // Generate proof for on-chain replay prevention
+        const proofData = ethers.solidityPackedKeccak256(
+          ['string', 'string', 'uint256'],
+          [withdrawalId, marketId, stateManager.getVersion()]
+        );
+
+        validatedWithdrawals.push({
+          user,
+          amount: amountStr,
+          proof: proofData,
+        });
+
+        stateManager.markOrderProcessed(withdrawalId);
+        withdrawalsProcessed++;
+
+        console.log(`Withdrawal ${withdrawalId}: ${user} withdrawing ${amount} cUSDC`);
+
+      } catch (e) {
+        console.error(`Failed to process withdrawal ${withdrawalId}: ${e.message}`);
+      }
+    }
+  } catch (e) {
+    console.error('Failed to parse withdrawals:', e.message);
+  }
+
+  return { withdrawalsProcessed, validatedWithdrawals };
+}
+
+/**
  * Processes order entries from input files
  * @param {ConfidentialAMM} amm
  * @param {StateManager} stateManager
@@ -390,7 +538,7 @@ async function processDeposits(stateManager) {
  * @returns {Promise<number>}
  */
 async function processOrders(amm, stateManager, marketId) {
-  const ordersContent = await readInputFile('orders.json');
+  const ordersContent = await readInputFile('orders.json', 2);
   if (!ordersContent) {
     console.log('No orders file found');
     return 0;

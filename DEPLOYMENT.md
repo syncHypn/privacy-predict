@@ -39,22 +39,11 @@ User                    Contracts                 TEE
   |                         |--- Deposit event --->|
   |                         |                      |-- Update cUSDC balance
   |                         |                      |
-  |--- buy() -------------> | (PredictionMarket)   |
-  |    (encrypted amount)   |--- BuyRequested ---->|
-  |                         |                      |-- Decrypt amount
-  |                         |                      |-- Execute AMM swap
+  |--- submitOrder() -----> | (OrderQueue)         |
+  |    (encrypted payload)  |--- OrderSubmitted -->|
+  |                         |                      |-- Decrypt & match
   |                         |                      |-- Update balances
-  |                         |<-- updateBalances() -|
-  |                         |<-- updatePrice() ----|
-  |                         |                      |
-  |--- sell() ------------> | (PredictionMarket)   |
-  |    (encrypted amount)   |--- SellRequested --->|
-  |                         |                      |-- Decrypt & execute
-  |                         |                      |
-  |--- redeem() ----------> | (PredictionMarket)   |
-  |    (after resolution)   |--- RedeemRequested ->|
-  |                         |                      |-- Calculate payout
-  |                         |<-- updateBalances() -|
+  |                         |<-- commitRoot() -----|
   |                         |                      |
   |--- withdraw() --------> | (ConfidentialUSDC)   |
   |                         |--- WithdrawReq ----->|
@@ -70,17 +59,17 @@ User                    Contracts                 TEE
 | Contract | Purpose |
 |----------|---------|
 | **MarketFactory** | Creates and manages prediction markets |
-| **PredictionMarket** | AMM for buy/sell/redeem of cYES/cNO |
-| **ConfidentialUSDC** | Wraps USDC with encrypted balances |
-| **ConfidentialOutcomeToken** | cYES/cNO tokens per market |
+| **OrderQueue** | Encrypted order submission and cancellation |
+| **PrivateToken** | Deposit collateral, encrypted balances |
 | **StateAnchor** | Anchors PMT state roots on-chain |
+| **CallbackReceiver** | iExec callback relay |
 | **MockUSDC** | Test collateral token (6 decimals) |
 
 ### TEE Components
 
 | Component | Purpose |
 |-----------|---------|
-| **EventListener** | Monitors BuyRequested, SellRequested, RedeemRequested events |
+| **EventListener** | Monitors OrderSubmitted, Deposit events |
 | **AMM** | Constant product market maker (x * y = k) |
 | **StateManager** | Encrypted state with IPFS snapshots |
 | **KeyManager** | TEE key derivation and encryption |
@@ -176,15 +165,7 @@ forge script script/DeployConfidentialUSDC.s.sol:DeployConfidentialUSDC \
   --broadcast \
   --account sepolia
 
-# Deploy PredictionMarket
-CONFIDENTIAL_USDC_ADDRESS=0x4932bc0B94751fcC0Fc02F5bca5233E2Dc592F2A \
-forge script script/DeployPredictionMarket.s.sol:DeployPredictionMarket \
-  --fork-url $ARBITRUM_SEPOLIA_RPC_URL \
-  --broadcast \
-  --account sepolia
-```
-
-### 1.4 Create Market & Outcome Tokens
+### 1.4 Create Market
 
 ```bash
 # Create market via MarketFactory
@@ -194,14 +175,6 @@ cast send 0x2a5C3684a8dEe90D04F89212cb419b9742470d9B \
   "[\"Yes\",\"No\"]" \
   $(date -d "2026-12-31" +%s) \
   --rpc-url $ARBITRUM_SEPOLIA_RPC_URL \
-  --account sepolia
-
-# Deploy ConfidentialOutcomeTokens
-PREDICTION_MARKET_ADDRESS=0x07913F426e09dEF7c7081AE7bCE5EfC1f5c8e78f \
-MARKET_ID=0x89137be6227fe319a5df0f500ce2934379a7ecd8dfaa666e6698d38284a70880 \
-forge script script/DeployOutcomeTokens.s.sol:DeployOutcomeTokens \
-  --fork-url $ARBITRUM_SEPOLIA_RPC_URL \
-  --broadcast \
   --account sepolia
 ```
 
@@ -444,54 +417,21 @@ cast send 0x4932bc0B94751fcC0Fc02F5bca5233E2Dc592F2A \
 
 The orchestrator will detect the DepositRequested event and update your encrypted cUSDC balance.
 
-### 7.2 Buy Outcome Tokens
+### 7.2 Submit Order
 
 ```bash
-# Encrypt amount (10 cUSDC)
-ENCRYPTED_AMOUNT=$(node orchestrator/scripts/encrypt-amount.js 10000000)
-
-# Buy cYES tokens
-cast send 0x07913F426e09dEF7c7081AE7bCE5EfC1f5c8e78f \
-  "buy(bytes32,bool,bytes)" \
-  0x89137be6227fe319a5df0f500ce2934379a7ecd8dfaa666e6698d38284a70880 \
-  true \
-  $ENCRYPTED_AMOUNT \
+# Submit an encrypted order via OrderQueue
+# Orders are encrypted with the TEE public key before submission
+cast send 0x67b830886a47bbb5f2019eb129e81f217ec56f09 \
+  "submitOrder(bytes32,bytes)" \
+  0x3a2b9c23a066c853f21b9cd7b727dfd8ec816de4d42444c25df3195ef5ef1834 \
+  $ENCRYPTED_PAYLOAD \
   --account sepolia --rpc-url $ARBITRUM_SEPOLIA_RPC_URL
 ```
 
-The orchestrator will:
-1. Decrypt the amount
-2. Execute AMM swap (cUSDC -> cYES)
-3. Update your encrypted cUSDC and cYES balances
-4. Update the on-chain price
+The TEE will process the order in the next batch and update state via callback.
 
-### 7.3 Sell Outcome Tokens
-
-```bash
-# Encrypt amount (5 cYES)
-ENCRYPTED_AMOUNT=$(node orchestrator/scripts/encrypt-amount.js 5000000)
-
-# Sell cYES tokens
-cast send 0x07913F426e09dEF7c7081AE7bCE5EfC1f5c8e78f \
-  "sell(bytes32,bool,bytes)" \
-  0x89137be6227fe319a5df0f500ce2934379a7ecd8dfaa666e6698d38284a70880 \
-  true \
-  $ENCRYPTED_AMOUNT \
-  --account sepolia --rpc-url $ARBITRUM_SEPOLIA_RPC_URL
-```
-
-### 7.4 Check Prices
-
-```bash
-cast call 0x07913F426e09dEF7c7081AE7bCE5EfC1f5c8e78f \
-  "getPrice(bytes32)(uint256,uint256)" \
-  0x89137be6227fe319a5df0f500ce2934379a7ecd8dfaa666e6698d38284a70880 \
-  --rpc-url $ARBITRUM_SEPOLIA_RPC_URL
-```
-
-Returns `(yesPrice, noPrice)` in basis points (e.g., 5049, 4951 = YES 50.49%, NO 49.51%).
-
-### 7.5 Check Encrypted Balances
+### 7.3 Check Encrypted Balances
 
 ```bash
 # Check cUSDC balance (encrypted)
@@ -602,25 +542,19 @@ Ensure protected data is properly encrypted using iExec DataProtector:
 The orchestrator (`/orchestrator`) provides the bridge between on-chain events and TEE processing:
 
 ```
-Arbitrum Sepolia                    Orchestrator
+Arbitrum Sepolia                    Orchestrator / TEE
        |                                 |
-       |--- DepositRequested ----------->|
-       |                                 |-- Decrypt amount
-       |                                 |-- Encrypt balance
-       |<-- updateBalance() -------------|
+       |--- Deposit -------------------->|
+       |                                 |-- Track deposit
        |                                 |
-       |--- BuyRequested --------------->|
-       |                                 |-- Decrypt amount
+       |--- OrderSubmitted ------------->|
+       |                                 |-- Decrypt order
        |                                 |-- Execute AMM swap
-       |                                 |-- Update balances
-       |<-- updateBalance(cUSDC) --------|
-       |<-- updateBalance(cYES) ---------|
-       |<-- updatePrice() ---------------|
+       |                                 |-- Update state
+       |<-- commitRoot() (callback) -----|
        |                                 |
-       |--- SellRequested -------------->|
-       |                                 |-- Same flow as buy
-       |<-- updateBalance() x2 ----------|
-       |<-- updatePrice() ---------------|
+       |--- applyBalanceUpdate() ------->|
+       |                                 |-- Update balances
 ```
 
 ### Components

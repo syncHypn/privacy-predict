@@ -289,7 +289,7 @@ export class ChainWriter {
  * @param {string} params.matchId
  * @returns {CallbackData}
  */
-export function generateCallbackData({ users, encryptedBalances, stateRoot, matchId }) {
+export function generateCallbackData({ users, encryptedBalances, stateRoot, matchId, withdrawals = [] }) {
   // Generate a simple attestation (in production, this would be SGX attestation)
   const attestation = `TEE_ATTESTATION:${matchId}:${Date.now()}`;
 
@@ -299,6 +299,7 @@ export function generateCallbackData({ users, encryptedBalances, stateRoot, matc
     stateRoot,
     matchId,
     attestation,
+    withdrawals,
   };
 }
 

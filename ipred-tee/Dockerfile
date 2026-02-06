@@ -1,4 +1,4 @@
-FROM node:22-alpine3.21
+FROM --platform=linux/amd64 node:22-alpine3.21
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
