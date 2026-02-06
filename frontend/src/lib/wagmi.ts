@@ -1,0 +1,13 @@
+import { createConfig } from "@privy-io/wagmi";
+import { http } from "wagmi";
+import { arbitrumSepolia } from "wagmi/chains";
+
+export const wagmiConfig = createConfig({
+  chains: [arbitrumSepolia],
+  transports: {
+    [arbitrumSepolia.id]: http(
+      process.env.NEXT_PUBLIC_RPC_URL ||
+        "https://sepolia-rollup.arbitrum.io/rpc"
+    ),
+  },
+});
