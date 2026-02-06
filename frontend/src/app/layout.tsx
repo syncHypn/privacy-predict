@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/lib/providers";
 import { Header } from "@/components/layout/Header";
+import { TickerBanner } from "@/components/layout/TickerBanner";
 import { DepositModal } from "@/components/deposit/DepositModal";
 import { WithdrawModal } from "@/components/deposit/WithdrawModal";
 import { Toaster } from "@/components/ui/sonner";
@@ -37,6 +38,7 @@ export default function RootLayout({
       >
         <Providers>
           <Header />
+          <TickerBanner />
           <main className="mx-auto min-h-[calc(100vh-4rem)] max-w-7xl px-4 py-8">
             {children}
           </main>

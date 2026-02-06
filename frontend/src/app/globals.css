@@ -118,3 +118,16 @@ input[type="number"] {
 [data-sonner-toast][data-type="error"]:hover {
   box-shadow: 0 0 16px rgba(239, 68, 68, 0.25);
 }
+
+/* Marquee scrolling animation */
+@keyframes marquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+.animate-marquee {
+  animation: marquee linear infinite;
+}
