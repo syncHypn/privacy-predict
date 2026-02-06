@@ -66,11 +66,14 @@ export function useWithdraw() {
 
   const isProcessing = step === "processing";
 
+  const reset = useCallback(() => setStep("idle"), []);
+
   return {
     executeWithdraw,
     step,
     isProcessing,
     isTEEKeyLoading,
     teeKeyError,
+    reset,
   };
 }

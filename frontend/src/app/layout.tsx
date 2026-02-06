@@ -4,6 +4,7 @@ import "./globals.css";
 import { Providers } from "@/lib/providers";
 import { Header } from "@/components/layout/Header";
 import { TickerBanner } from "@/components/layout/TickerBanner";
+import { CategoryBanner } from "@/components/layout/CategoryBanner";
 import { DepositModal } from "@/components/deposit/DepositModal";
 import { WithdrawModal } from "@/components/deposit/WithdrawModal";
 import { Footer } from "@/components/layout/Footer";
@@ -41,6 +42,7 @@ export default function RootLayout({
         <Providers>
           <Header />
           <TickerBanner />
+          <CategoryBanner />
           <main className="mx-auto min-h-[calc(100vh-4rem)] max-w-7xl px-4 py-8">
             {children}
           </main>

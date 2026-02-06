@@ -2,6 +2,7 @@
 
 import { usePrivy } from "@privy-io/react-auth";
 import { BalanceDisplay } from "@/components/portfolio/BalanceDisplay";
+import { DepositHistory } from "@/components/portfolio/DepositHistory";
 import { OrderHistory } from "@/components/portfolio/OrderHistory";
 import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/store/useAppStore";
@@ -57,6 +58,7 @@ export default function PortfolioPage() {
       </div>
 
       <BalanceDisplay address={address} />
+      <DepositHistory address={address} />
       <OrderHistory address={address} />
     </div>
   );

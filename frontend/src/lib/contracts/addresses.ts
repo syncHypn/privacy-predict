@@ -4,6 +4,6 @@ export const ADDRESSES = {
   PrivateToken: "0x7402c579e7a661b3fda0553e511d14bf0aadcab9",
   StateAnchor: "0x074af457ea1c58752705ce157f6892e5bbfc5988",
   MockUSDC: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d",
-  CallbackReceiver: "0xa255688d06d19e2cd37C40BBDC8615Da5a5b749B",
+  CallbackReceiver: "0xBD830E10aD1A1cb6054da7A3B52BAFb93Bd0f4c1",
   PredictionMarket: process.env.NEXT_PUBLIC_PREDICTION_MARKET_ADDRESS || "",
 } as const;

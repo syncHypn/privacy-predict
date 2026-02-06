@@ -2,10 +2,10 @@
 
 import { MarketCard } from "./MarketCard";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Market } from "@/types/market";
+import type { EnrichedMarket } from "@/types/market";
 
 interface MarketGridProps {
-  markets: Market[];
+  markets: EnrichedMarket[];
   isLoading: boolean;
 }
 

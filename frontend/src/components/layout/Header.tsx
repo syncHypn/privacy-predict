@@ -58,12 +58,20 @@ export function Header() {
               Portfolio
             </Link>
             {isAdmin && (
-              <Link
-                href="/create"
-                className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-              >
-                Create
-              </Link>
+              <>
+                <Link
+                  href="/create"
+                  className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Create
+                </Link>
+                <Link
+                  href="/admin"
+                  className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Admin
+                </Link>
+              </>
             )}
           </nav>
         </div>

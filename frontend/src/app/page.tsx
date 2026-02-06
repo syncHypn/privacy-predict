@@ -9,10 +9,16 @@ export default function HomePage() {
   const { markets, isLoading } = useMarkets();
   const searchQuery = useAppStore((s) => s.searchQuery);
   const setSearchQuery = useAppStore((s) => s.setSearchQuery);
+  const selectedCategory = useAppStore((s) => s.selectedCategory);
 
-  const filteredMarkets = markets.filter((m) =>
-    m.question.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredMarkets = markets.filter((m) => {
+    const matchesSearch = m.question
+      .toLowerCase()
+      .includes(searchQuery.toLowerCase());
+    const matchesCategory =
+      !selectedCategory || (m.category || "other") === selectedCategory;
+    return matchesSearch && matchesCategory;
+  });
 
   return (
     <div className="space-y-8">

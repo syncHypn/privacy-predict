@@ -3,7 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useUserOrders } from "@/lib/hooks/useUserOrders";
-import type { EncryptedOrder } from "@/types/market";
+import type { EnrichedOrder } from "@/types/market";
 
 const EXPLORER_URL = "https://sepolia.arbiscan.io";
 
@@ -12,7 +12,7 @@ interface OrderHistoryProps {
 }
 
 export function OrderHistory({ address }: OrderHistoryProps) {
-  const { orders, txHashMap, isLoading } = useUserOrders(address);
+  const { orders, isLoading } = useUserOrders(address);
 
   return (
     <Card className="border-border bg-card">
@@ -39,11 +39,7 @@ export function OrderHistory({ address }: OrderHistoryProps) {
               <span>Status</span>
             </div>
             {orders.map((order) => (
-              <OrderRow
-                key={order.orderId}
-                order={order}
-                txHash={txHashMap[order.orderId]}
-              />
+              <OrderRow key={order.orderId} order={order} />
             ))}
           </div>
         )}
@@ -52,19 +48,13 @@ export function OrderHistory({ address }: OrderHistoryProps) {
   );
 }
 
-function OrderRow({
-  order,
-  txHash,
-}: {
-  order: EncryptedOrder;
-  txHash?: `0x${string}`;
-}) {
-  const timestamp = new Date(Number(order.timestamp) * 1000);
+function OrderRow({ order }: { order: EnrichedOrder }) {
+  const timestamp = new Date(order.blockTimestamp);
 
   const row = (
     <div
       className={`grid grid-cols-4 gap-4 py-2 text-sm rounded-md px-2 -mx-2 ${
-        txHash
+        order.transactionHash
           ? "cursor-pointer transition-colors hover:bg-secondary/50"
           : ""
       }`}
@@ -78,9 +68,9 @@ function OrderRow({
       <span className="text-muted-foreground">
         {timestamp.toLocaleDateString()}
       </span>
-      <span className="flex items-center gap-1 text-primary">
-        Encrypted
-        {txHash && (
+      <span className={`flex items-center gap-1 ${order.cancelled ? "text-[var(--color-no)]" : "text-primary"}`}>
+        {order.cancelled ? "Cancelled" : "Encrypted"}
+        {order.transactionHash && (
           <svg
             width="12"
             height="12"
@@ -101,10 +91,10 @@ function OrderRow({
     </div>
   );
 
-  if (txHash) {
+  if (order.transactionHash) {
     return (
       <a
-        href={`${EXPLORER_URL}/tx/${txHash}`}
+        href={`${EXPLORER_URL}/tx/${order.transactionHash}`}
         target="_blank"
         rel="noopener noreferrer"
       >

@@ -75,9 +75,12 @@ export function useDeposit() {
   const isProcessing =
     step === "processing" || step === "approving" || step === "depositing";
 
+  const reset = useCallback(() => setStep("idle"), []);
+
   return {
     executeDeposit,
     step,
     isProcessing,
+    reset,
   };
 }

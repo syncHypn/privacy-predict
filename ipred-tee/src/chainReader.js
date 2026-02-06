@@ -239,6 +239,24 @@ export class ChainReader {
   }
 
   // ============================================================
+  // Balance Reading
+  // ============================================================
+
+  /**
+   * Gets the encrypted balance for a user from PrivateToken contract
+   * @param {string} userAddress
+   * @returns {Promise<Object|null>} Parsed encrypted balances object, or null if empty
+   */
+  async getEncryptedBalance(userAddress) {
+    const encryptedBytes = await this.#privateToken.getEncryptedBalance(userAddress);
+    if (!encryptedBytes || encryptedBytes === '0x' || encryptedBytes.length <= 2) {
+      return null;
+    }
+    const jsonStr = ethers.toUtf8String(encryptedBytes);
+    return JSON.parse(jsonStr);
+  }
+
+  // ============================================================
   // Deposit Event Reading
   // ============================================================
 

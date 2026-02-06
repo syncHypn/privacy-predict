@@ -4,13 +4,23 @@ import { use, useState } from "react";
 import { useMarket } from "@/lib/hooks/useMarkets";
 import { TradingPanel } from "@/components/trading/TradingPanel";
 import { PriceChart } from "@/components/markets/PriceChart";
-import { PriceBar } from "@/components/markets/PriceBar";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { shortenAddress, timeUntil } from "@/lib/utils";
+import { shortenAddress } from "@/lib/utils";
 import { ADDRESSES } from "@/lib/contracts/addresses";
+
+function timeUntilISO(isoDate: string): string {
+  const diff = new Date(isoDate).getTime() - Date.now();
+  if (diff <= 0) return "Expired";
+  const days = Math.floor(diff / 86400000);
+  const hours = Math.floor((diff % 86400000) / 3600000);
+  if (days > 0) return `${days}d ${hours}h`;
+  const mins = Math.floor((diff % 3600000) / 60000);
+  if (hours > 0) return `${hours}h ${mins}m`;
+  return `${mins}m`;
+}
 
 export default function MarketDetailPage({
   params,
@@ -44,8 +54,9 @@ export default function MarketDetailPage({
     );
   }
 
-  const isExpired =
-    BigInt(Math.floor(Date.now() / 1000)) >= market.resolutionTime;
+  const isExpired = new Date(market.resolutionTime).getTime() < Date.now();
+  const yesPct = Math.round(market.yesPrice / 100);
+  const noPct = Math.round(market.noPrice / 100);
 
   return (
     <div className="space-y-6">
@@ -54,13 +65,25 @@ export default function MarketDetailPage({
         <h1 className="text-2xl font-bold text-foreground lg:text-3xl">
           {market.question}
         </h1>
-        <p className={`text-sm ${market.resolved ? "text-primary" : isExpired ? "text-[var(--color-no)]" : "text-muted-foreground"}`}>
-          {market.resolved
-            ? `Resolved — Winner: ${market.outcomes[market.winningOutcome]}`
-            : isExpired
-            ? "Market expired"
-            : `Resolves in ${timeUntil(market.resolutionTime)}`}
-        </p>
+        <div className="flex items-center gap-2">
+          <p className={`text-sm ${market.resolved ? "text-primary" : isExpired ? "text-[var(--color-no)]" : "text-muted-foreground"}`}>
+            {market.resolved
+              ? `Resolved — Winner: ${market.outcomes[market.winningOutcome]}`
+              : isExpired
+              ? "Market expired"
+              : `Resolves in ${timeUntilISO(market.resolutionTime)}`}
+          </p>
+          {market.category && (
+            <Badge variant="secondary" className="text-xs">
+              {market.category}
+            </Badge>
+          )}
+        </div>
+        {market.description && (
+          <p className="text-sm text-muted-foreground mt-2">
+            {market.description}
+          </p>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -78,7 +101,7 @@ export default function MarketDetailPage({
             <button onClick={() => setSide("YES")} className="text-left">
               <Card className={`border-border bg-card cursor-pointer transition-all hover:shadow-[0_0_16px_rgba(91,140,90,0.25)] ${side === "YES" ? "ring-2 ring-[var(--color-yes)]/50 shadow-[0_0_12px_rgba(91,140,90,0.2)]" : ""}`}>
                 <CardContent className="py-4 text-center">
-                  <p className="text-3xl font-bold text-[var(--color-yes)]">50%</p>
+                  <p className="text-3xl font-bold text-[var(--color-yes)]">{yesPct}%</p>
                   <p className="text-sm text-muted-foreground">{market.outcomes[0] || "Yes"}</p>
                 </CardContent>
               </Card>
@@ -86,7 +109,7 @@ export default function MarketDetailPage({
             <button onClick={() => setSide("NO")} className="text-left">
               <Card className={`border-border bg-card cursor-pointer transition-all hover:shadow-[0_0_16px_rgba(184,112,112,0.25)] ${side === "NO" ? "ring-2 ring-[var(--color-no)]/50 shadow-[0_0_12px_rgba(184,112,112,0.2)]" : ""}`}>
                 <CardContent className="py-4 text-center">
-                  <p className="text-3xl font-bold text-[var(--color-no)]">50%</p>
+                  <p className="text-3xl font-bold text-[var(--color-no)]">{noPct}%</p>
                   <p className="text-sm text-muted-foreground">{market.outcomes[1] || "No"}</p>
                 </CardContent>
               </Card>
@@ -115,9 +138,7 @@ export default function MarketDetailPage({
               <Separator className="bg-border" />
               <DetailRow
                 label="Resolution"
-                value={new Date(
-                  Number(market.resolutionTime) * 1000
-                ).toLocaleString()}
+                value={new Date(market.resolutionTime).toLocaleString()}
               />
               <Separator className="bg-border" />
               <DetailRow
@@ -133,6 +154,24 @@ export default function MarketDetailPage({
                     : "Open"
                 }
               />
+              {market.orderCount > 0 && (
+                <>
+                  <Separator className="bg-border" />
+                  <DetailRow
+                    label="Orders"
+                    value={String(market.orderCount)}
+                  />
+                </>
+              )}
+              {market.uniqueTraders > 0 && (
+                <>
+                  <Separator className="bg-border" />
+                  <DetailRow
+                    label="Traders"
+                    value={String(market.uniqueTraders)}
+                  />
+                </>
+              )}
             </CardContent>
           </Card>
         </div>

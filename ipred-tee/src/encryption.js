@@ -233,6 +233,27 @@ export function verifyCommitment(value, commitment, encrypted) {
   return computed.x === commitment.x && computed.y === commitment.y;
 }
 
+/**
+ * Re-encrypts a plaintext string for a specific user using NaCl box (asymmetric).
+ * Used by the balance query flow: TEE decrypts the balance with sealed key,
+ * then re-encrypts it with the user's ephemeral NaCl public key.
+ * @param {string} plaintext - JSON string of balances to encrypt
+ * @param {Uint8Array} userPublicKey - User's X25519 public key (32 bytes)
+ * @returns {{ nonce: string, ciphertext: string, teePublicKey: string }}
+ */
+export function encryptForUser(plaintext, userPublicKey) {
+  const teeKeyPair = nacl.box.keyPair();
+  const nonce = nacl.randomBytes(24);
+  const message = new TextEncoder().encode(plaintext);
+  const ciphertext = nacl.box(message, nonce, userPublicKey, teeKeyPair.secretKey);
+
+  return {
+    nonce: bytesToHex(nonce),
+    ciphertext: bytesToHex(ciphertext),
+    teePublicKey: bytesToHex(teeKeyPair.publicKey),
+  };
+}
+
 export default {
   hexToBytes,
   bytesToHex,
@@ -246,4 +267,5 @@ export default {
   decryptState,
   computeCommitment,
   verifyCommitment,
+  encryptForUser,
 };

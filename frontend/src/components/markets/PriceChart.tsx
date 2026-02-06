@@ -8,9 +8,8 @@ import {
   LineStyle,
   AreaSeries,
 } from "lightweight-charts";
-import { usePublicClient } from "wagmi";
-import { parseAbiItem } from "viem";
-import { ADDRESSES } from "@/lib/contracts/addresses";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 
 type TimeRange = "1H" | "6H" | "1D" | "1W" | "1M" | "ALL";
 
@@ -22,8 +21,6 @@ interface PricePoint {
 interface PriceChartProps {
   marketId: string;
 }
-
-const PRICE_SCALE = 10000; // Contract uses 1e4 for price
 
 /** Build a flat 50% line spanning the selected time range */
 function buildFlatLine(range: TimeRange): PricePoint[] {
@@ -53,7 +50,7 @@ function buildFlatLine(range: TimeRange): PricePoint[] {
       points = 30;
       break;
     case "ALL":
-      span = 7776000; // 90 days
+      span = 7776000;
       points = 30;
       break;
   }
@@ -73,106 +70,34 @@ export function PriceChart({ marketId }: PriceChartProps) {
   const seriesRef = useRef<any>(null);
   const [range, setRange] = useState<TimeRange>("ALL");
   const [currentPrice, setCurrentPrice] = useState<number>(50);
-  const [priceHistory, setPriceHistory] = useState<PricePoint[]>([]);
-  const [hasRealData, setHasRealData] = useState(false);
 
-  const publicClient = usePublicClient();
-  const predictionMarketAddr = ADDRESSES.PredictionMarket;
+  // Fetch prices from API
+  const { data: priceData } = useQuery({
+    queryKey: ["prices", marketId, range],
+    queryFn: () => api.getPrices(marketId, range),
+  });
 
-  // Fetch PriceUpdated events from PredictionMarket (if deployed)
-  useEffect(() => {
-    if (!publicClient || !predictionMarketAddr) {
-      setHasRealData(false);
-      return;
-    }
+  const hasRealData = (priceData?.length ?? 0) > 0;
 
-    let cancelled = false;
-
-    async function fetchPriceEvents() {
-      try {
-        const logs = await publicClient!.getLogs({
-          address: predictionMarketAddr as `0x${string}`,
-          event: parseAbiItem(
-            "event PriceUpdated(bytes32 indexed marketId, uint256 priceYes, uint256 priceNo)"
-          ),
-          args: { marketId: marketId as `0x${string}` },
-          fromBlock: BigInt(0),
-          toBlock: "latest",
-        });
-
-        if (cancelled) return;
-
-        if (logs.length === 0) {
-          setHasRealData(false);
-          return;
-        }
-
-        // Get block timestamps for each log
-        const blocks = await Promise.all(
-          logs.map((log) =>
-            publicClient!.getBlock({ blockNumber: log.blockNumber })
-          )
-        );
-
-        if (cancelled) return;
-
-        const points: PricePoint[] = logs.map((log, i) => ({
-          time: Number(blocks[i].timestamp),
-          value:
-            Number((log.args as any).priceYes) / (PRICE_SCALE / 100),
-        }));
-
-        // Deduplicate by timestamp
-        const seen = new Set<number>();
-        const unique = points.filter((p) => {
-          if (seen.has(p.time)) return false;
-          seen.add(p.time);
-          return true;
-        });
-
-        setPriceHistory(unique);
-        setHasRealData(unique.length > 0);
-      } catch {
-        setHasRealData(false);
-      }
-    }
-
-    fetchPriceEvents();
-    return () => {
-      cancelled = true;
-    };
-  }, [publicClient, predictionMarketAddr, marketId]);
-
-  // Select data based on range and available history
+  // Convert API data to chart points
   const chartData = useMemo(() => {
-    if (!hasRealData) return buildFlatLine(range);
+    if (!priceData || priceData.length === 0) return buildFlatLine(range);
 
-    const now = Math.floor(Date.now() / 1000);
-    let cutoff: number;
-    switch (range) {
-      case "1H":
-        cutoff = now - 3600;
-        break;
-      case "6H":
-        cutoff = now - 21600;
-        break;
-      case "1D":
-        cutoff = now - 86400;
-        break;
-      case "1W":
-        cutoff = now - 604800;
-        break;
-      case "1M":
-        cutoff = now - 2592000;
-        break;
-      case "ALL":
-        cutoff = 0;
-        break;
-    }
+    const points: PricePoint[] = priceData.map((p) => ({
+      time: Math.floor(new Date(p.timestamp).getTime() / 1000),
+      value: p.yesPrice / 100, // 0-10000 → 0-100%
+    }));
 
-    const filtered = priceHistory.filter((p) => p.time >= cutoff);
-    return filtered.length > 0 ? filtered : buildFlatLine(range);
-  }, [hasRealData, priceHistory, range]);
+    // Deduplicate by timestamp
+    const seen = new Set<number>();
+    const unique = points.filter((p) => {
+      if (seen.has(p.time)) return false;
+      seen.add(p.time);
+      return true;
+    });
+
+    return unique.length > 0 ? unique : buildFlatLine(range);
+  }, [priceData, range]);
 
   // Render chart
   useEffect(() => {

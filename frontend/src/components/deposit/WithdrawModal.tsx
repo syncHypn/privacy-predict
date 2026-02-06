@@ -19,9 +19,17 @@ export function WithdrawModal() {
   const setOpen = useAppStore((s) => s.setWithdrawModalOpen);
   const [amount, setAmount] = useState("");
   const { user } = usePrivy();
-  const { executeWithdraw, step, isProcessing } = useWithdraw();
+  const { executeWithdraw, step, isProcessing, reset } = useWithdraw();
 
   const isEmbedded = user?.wallet?.walletClientType === "privy";
+
+  function handleOpenChange(value: boolean) {
+    setOpen(value);
+    if (!value) {
+      setAmount("");
+      reset();
+    }
+  }
 
   function handleWithdraw() {
     if (!amount || parseFloat(amount) <= 0) return;
@@ -33,7 +41,7 @@ export function WithdrawModal() {
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="bg-card border-border sm:max-w-[400px]">
         <DialogHeader>
           <DialogTitle>Withdraw</DialogTitle>
@@ -78,7 +86,7 @@ export function WithdrawModal() {
           </div>
 
           <Button
-            onClick={step === "done" ? () => setOpen(false) : handleWithdraw}
+            onClick={step === "done" ? () => handleOpenChange(false) : handleWithdraw}
             disabled={isProcessing || (step !== "done" && (!amount || parseFloat(amount) <= 0))}
             className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
           >
