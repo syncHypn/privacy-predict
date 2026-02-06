@@ -8,9 +8,9 @@
 
 ## Deployed iApp (Arbitrum Sepolia)
 
-- **iApp Address**: `0xd4723852f4064CB103CF4CC04C45474AB8BD9dB6`
-- **Docker Image**: `romthpt/ipred-tee:0.0.1-tee-scone-5.9.1-v16-prod-3d2b6dd1734b`
-- **Explorer**: https://explorer.iex.ec/arbitrum-sepolia-testnet/app/0xd4723852f4064CB103CF4CC04C45474AB8BD9dB6
+- **iApp Address**: `0x9e2CE74eEbD25209C9C58FadEC81fbD239d74CBa`
+- **Docker Image**: `romthpt/ipred-tee:0.0.1-tee-scone-5.9.1-v16-prod-b7e4ab0b6e85`
+- **Explorer**: https://explorer.iex.ec/arbitrum-sepolia-testnet/app/0x9e2CE74eEbD25209C9C58FadEC81fbD239d74CBa
 
 ### Running the iApp
 
@@ -18,25 +18,44 @@
 
 ```bash
 # Run with market ID (use market= prefix to preserve hex string)
-iapp run 0xd4723852f4064CB103CF4CC04C45474AB8BD9dB6 \
+iapp run 0x9e2CE74eEbD25209C9C58FadEC81fbD239d74CBa \
   --args "market=0x3a2b9c23a066c853f21b9cd7b727dfd8ec816de4d42444c25df3195ef5ef1834" \
   --chain arbitrum-sepolia-testnet
 ```
 
-### Testing with Input Files
+### Input Files
 
-Sample input files are in `ipred-tee/input/`. Upload to a public URL (GitHub Gist, IPFS) then:
+Input files must be hosted on IPFS (TEE workers cannot reach GitHub/Gist URLs).
+Order of `--inputFile` arguments matters (index-based reading):
+1. `deposits.json` - Credits users with cUSDC balances
+2. `orders.json` - Trading orders
+3. `public-state.json` - Previous public state (optional, for continuity)
+4. `private-state.enc` - Previous encrypted state (optional, for continuity)
 
 ```bash
-iapp test --args "market=0x3a2b9c23a066c853f21b9cd7b727dfd8ec816de4d42444c25df3195ef5ef1834" \
-  --inputFile "https://your-url/deposits.json" \
-  --inputFile "https://your-url/orders.json"
+# Local test
+iapp test --args "market=0x3a2b..." \
+  --inputFile "https://gateway.pinata.cloud/ipfs/<deposits-CID>" \
+  --inputFile "https://gateway.pinata.cloud/ipfs/<orders-CID>"
+
+# TEE run (from iexec-builder VM)
+iapp run 0x9e2CE74eEbD25209C9C58FadEC81fbD239d74CBa \
+  --args "market=0x3a2b..." \
+  --inputFile "https://gateway.pinata.cloud/ipfs/<deposits-CID>" \
+  --inputFile "https://gateway.pinata.cloud/ipfs/<orders-CID>" \
+  --chain arbitrum-sepolia-testnet
 ```
 
 Input file formats:
-- `deposits.json` - Credits users with cUSDC balances: `[{ "user": "0x...", "amount": "500000000" }]`
-- `orders.json` - Trading orders: `[{ "orderId": "order-001", "user": "0x...", "side": "BUY", "outcomeIndex": 0, "amount": "100000000" }]`
-- `public-state.json` / `private-state.enc` - Previous state for continuity between runs
+- `deposits.json`: `[{ "user": "0x...", "amount": "500000000" }]`
+- `orders.json`: `[{ "orderId": "order-001", "user": "0x...", "side": "BUY", "outcomeIndex": 0, "amount": "100000000" }]`
+
+### Test IPFS Files (Pinata)
+
+| File | CID |
+|------|-----|
+| deposits.json | QmV8pCpLF8LBAModLW7FuNpmGpkxXWSCkdJEXdPR6W6d5s |
+| orders.json | QmeKTDavvttNVwG9gTWtrc7oXL6dLWBWxWxwviBYj2sf11 |
 
 ## Contract Addresses (Arbitrum Sepolia)
 

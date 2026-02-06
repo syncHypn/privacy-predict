@@ -107,12 +107,13 @@ const main = async () => {
     const amm = new ConfidentialAMM(stateManager);
 
     // Load previous state or initialize
+    // Input file convention: #3=public-state.json, #4=private-state.enc
     await loadOrInitializeState(stateManager, sealedKey, marketId);
 
-    // Process deposits from input files
+    // Process deposits from input files (#1=deposits.json)
     await processDeposits(stateManager);
 
-    // Process pending orders from input files
+    // Process pending orders from input files (#2=orders.json)
     const ordersProcessed = await processOrders(amm, stateManager, marketId);
 
     // Update state version
@@ -252,34 +253,60 @@ function getInputDir() {
  * @param {string} pattern - Filename to look for (e.g., 'orders.json')
  * @returns {Promise<string | null>}
  */
-async function readInputFile(pattern) {
+async function readInputFile(pattern, expectedIndex = null) {
   const inputDir = getInputDir();
+  console.log(`[readInputFile] Looking for "${pattern}" (index=${expectedIndex}) in dir: ${inputDir}`);
+  console.log(`[readInputFile] IEXEC_IN=${process.env.IEXEC_IN}, IEXEC_INPUT_FILES_FOLDER=${process.env.IEXEC_INPUT_FILES_FOLDER}`);
+  const inputCount = parseInt(process.env.IEXEC_INPUT_FILES_NUMBER || '0');
+  console.log(`[readInputFile] IEXEC_INPUT_FILES_NUMBER=${inputCount}`);
   if (!inputDir) return null;
 
-  // Check via environment variables first (old pattern)
-  const inputCount = parseInt(process.env.IEXEC_INPUT_FILES_NUMBER || '0');
+  // Strategy 1: Read by expected index (most reliable for TEE)
+  if (expectedIndex && inputCount >= expectedIndex) {
+    const fileName = process.env[`IEXEC_INPUT_FILE_NAME_${expectedIndex}`];
+    console.log(`[readInputFile] Index ${expectedIndex} -> fileName=${fileName}`);
+    if (fileName) {
+      const filePath = path.join(inputDir, fileName);
+      try {
+        const content = await fs.readFile(filePath, 'utf8');
+        console.log(`[readInputFile] Read by index ${expectedIndex}: ${filePath} (${content.length} bytes)`);
+        return content;
+      } catch (e) {
+        console.log(`[readInputFile] Failed to read by index: ${e.message}`);
+      }
+    }
+  }
+
+  // Strategy 2: Match by filename pattern in env vars
   for (let i = 1; i <= inputCount; i++) {
     const fileName = process.env[`IEXEC_INPUT_FILE_NAME_${i}`];
+    console.log(`[readInputFile] IEXEC_INPUT_FILE_NAME_${i}=${fileName}`);
     if (fileName && fileName.includes(pattern)) {
       const filePath = path.join(inputDir, fileName);
       try {
-        return await fs.readFile(filePath, 'utf8');
-      } catch {
+        const content = await fs.readFile(filePath, 'utf8');
+        console.log(`[readInputFile] Found "${pattern}" at ${filePath} (${content.length} bytes)`);
+        return content;
+      } catch (e) {
+        console.log(`[readInputFile] Failed to read ${filePath}: ${e.message}`);
         continue;
       }
     }
   }
 
-  // Try direct file access (new pattern)
+  // Strategy 3: Directory listing with pattern match
   try {
     const files = await fs.readdir(inputDir);
+    console.log(`[readInputFile] Directory listing of ${inputDir}:`, files);
     for (const file of files) {
       if (file.includes(pattern)) {
-        return await fs.readFile(path.join(inputDir, file), 'utf8');
+        const content = await fs.readFile(path.join(inputDir, file), 'utf8');
+        console.log(`[readInputFile] Found "${pattern}" via listing at ${file} (${content.length} bytes)`);
+        return content;
       }
     }
-  } catch {
-    // Directory doesn't exist or is empty
+  } catch (e) {
+    console.log(`[readInputFile] Cannot read dir ${inputDir}: ${e.message}`);
   }
 
   return null;
@@ -332,8 +359,8 @@ async function getSealedKey() {
  * @param {string} marketId
  */
 async function loadOrInitializeState(stateManager, sealedKey, marketId) {
-  // Try to load public state
-  const publicStateContent = await readInputFile('public-state.json');
+  // Try to load public state (input file #3 if provided)
+  const publicStateContent = await readInputFile('public-state.json', 3);
   if (publicStateContent) {
     try {
       const publicState = JSON.parse(publicStateContent);
@@ -344,8 +371,8 @@ async function loadOrInitializeState(stateManager, sealedKey, marketId) {
     }
   }
 
-  // Try to load private state
-  const privateStateContent = await readInputFile('private-state.enc');
+  // Try to load private state (input file #4 if provided)
+  const privateStateContent = await readInputFile('private-state.enc', 4);
   if (privateStateContent) {
     try {
       const { decryptState } = await import('./encryption.js');
@@ -372,7 +399,7 @@ async function loadOrInitializeState(stateManager, sealedKey, marketId) {
  * @param {StateManager} stateManager
  */
 async function processDeposits(stateManager) {
-  const depositsContent = await readInputFile('deposits.json');
+  const depositsContent = await readInputFile('deposits.json', 1);
   if (!depositsContent) {
     console.log('No deposits file found');
     return;
@@ -399,7 +426,7 @@ async function processDeposits(stateManager) {
  * @returns {Promise<number>}
  */
 async function processOrders(amm, stateManager, marketId) {
-  const ordersContent = await readInputFile('orders.json');
+  const ordersContent = await readInputFile('orders.json', 2);
   if (!ordersContent) {
     console.log('No orders file found');
     return 0;
