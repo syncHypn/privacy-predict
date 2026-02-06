@@ -20,11 +20,12 @@ import { formatUSDC } from "@/lib/utils";
 interface TradingPanelProps {
   marketId: `0x${string}`;
   question: string;
+  side: "YES" | "NO";
+  onSideChange: (side: "YES" | "NO") => void;
 }
 
-export function TradingPanel({ marketId, question }: TradingPanelProps) {
+export function TradingPanel({ marketId, question, side, onSideChange }: TradingPanelProps) {
   const { authenticated, login, user } = usePrivy();
-  const [side, setSide] = useState<"YES" | "NO">("YES");
   const [amount, setAmount] = useState("");
   const [showConfirm, setShowConfirm] = useState(false);
   const { submitOrder, isProcessing, step } = useSubmitOrder();
@@ -57,7 +58,7 @@ export function TradingPanel({ marketId, question }: TradingPanelProps) {
           <div className="grid grid-cols-2 gap-2">
             <Button
               variant={side === "YES" ? "default" : "outline"}
-              onClick={() => setSide("YES")}
+              onClick={() => onSideChange("YES")}
               className={
                 side === "YES"
                   ? "bg-[var(--color-yes)] text-white hover:bg-[var(--color-yes)]/90"
@@ -68,7 +69,7 @@ export function TradingPanel({ marketId, question }: TradingPanelProps) {
             </Button>
             <Button
               variant={side === "NO" ? "default" : "outline"}
-              onClick={() => setSide("NO")}
+              onClick={() => onSideChange("NO")}
               className={
                 side === "NO"
                   ? "bg-[var(--color-no)] text-white hover:bg-[var(--color-no)]/90"
@@ -104,6 +105,18 @@ export function TradingPanel({ marketId, question }: TradingPanelProps) {
               step="0.01"
               className="bg-secondary border-border"
             />
+            <div className="flex gap-2">
+              {[1, 5, 10, 50].map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setAmount(String(v))}
+                  className="flex-1 rounded-md border border-border py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                >
+                  ${v}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Estimated payout */}
@@ -128,7 +141,11 @@ export function TradingPanel({ marketId, question }: TradingPanelProps) {
           <Button
             onClick={handleSubmit}
             disabled={isProcessing || !amount}
-            className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
+            className={`w-full text-white ${
+              side === "YES"
+                ? "bg-[var(--color-yes)] hover:bg-[var(--color-yes)]/90"
+                : "bg-[var(--color-no)] hover:bg-[var(--color-no)]/90"
+            }`}
           >
             {!authenticated
               ? "Connect to Trade"

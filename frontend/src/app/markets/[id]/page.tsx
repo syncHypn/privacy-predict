@@ -1,6 +1,6 @@
 "use client";
 
-import { use } from "react";
+import { use, useState } from "react";
 import { useMarket } from "@/lib/hooks/useMarkets";
 import { TradingPanel } from "@/components/trading/TradingPanel";
 import { PriceChart } from "@/components/markets/PriceChart";
@@ -43,34 +43,25 @@ export default function MarketDetailPage({
     );
   }
 
+  const [side, setSide] = useState<"YES" | "NO">("YES");
+
   const isExpired =
     BigInt(Math.floor(Date.now() / 1000)) >= market.resolutionTime;
 
   return (
     <div className="space-y-6">
       {/* Title */}
-      <div className="space-y-3">
-        <div className="flex items-start gap-3">
-          <h1 className="text-2xl font-bold text-foreground lg:text-3xl">
-            {market.question}
-          </h1>
-          <Badge
-            variant={
-              market.resolved
-                ? "default"
-                : isExpired
-                ? "destructive"
-                : "secondary"
-            }
-            className="shrink-0 mt-1"
-          >
-            {market.resolved
-              ? "Resolved"
-              : isExpired
-              ? "Expired"
-              : timeUntil(market.resolutionTime)}
-          </Badge>
-        </div>
+      <div className="space-y-1">
+        <h1 className="text-2xl font-bold text-foreground lg:text-3xl">
+          {market.question}
+        </h1>
+        <p className={`text-sm ${market.resolved ? "text-primary" : isExpired ? "text-[var(--color-no)]" : "text-muted-foreground"}`}>
+          {market.resolved
+            ? `Resolved — Winner: ${market.outcomes[market.winningOutcome]}`
+            : isExpired
+            ? "Market expired"
+            : `Resolves in ${timeUntil(market.resolutionTime)}`}
+        </p>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -85,18 +76,22 @@ export default function MarketDetailPage({
 
           {/* Outcome Prices */}
           <div className="grid grid-cols-2 gap-4">
-            <Card className="border-border bg-card">
-              <CardContent className="py-4 text-center">
-                <p className="text-3xl font-bold text-[var(--color-yes)]">50%</p>
-                <p className="text-sm text-muted-foreground">{market.outcomes[0] || "Yes"}</p>
-              </CardContent>
-            </Card>
-            <Card className="border-border bg-card">
-              <CardContent className="py-4 text-center">
-                <p className="text-3xl font-bold text-[var(--color-no)]">50%</p>
-                <p className="text-sm text-muted-foreground">{market.outcomes[1] || "No"}</p>
-              </CardContent>
-            </Card>
+            <button onClick={() => setSide("YES")} className="text-left">
+              <Card className={`border-border bg-card cursor-pointer transition-all hover:shadow-[0_0_16px_rgba(34,197,94,0.25)] ${side === "YES" ? "ring-2 ring-[var(--color-yes)]/50 shadow-[0_0_12px_rgba(34,197,94,0.2)]" : ""}`}>
+                <CardContent className="py-4 text-center">
+                  <p className="text-3xl font-bold text-[var(--color-yes)]">50%</p>
+                  <p className="text-sm text-muted-foreground">{market.outcomes[0] || "Yes"}</p>
+                </CardContent>
+              </Card>
+            </button>
+            <button onClick={() => setSide("NO")} className="text-left">
+              <Card className={`border-border bg-card cursor-pointer transition-all hover:shadow-[0_0_16px_rgba(239,68,68,0.25)] ${side === "NO" ? "ring-2 ring-[var(--color-no)]/50 shadow-[0_0_12px_rgba(239,68,68,0.2)]" : ""}`}>
+                <CardContent className="py-4 text-center">
+                  <p className="text-3xl font-bold text-[var(--color-no)]">50%</p>
+                  <p className="text-sm text-muted-foreground">{market.outcomes[1] || "No"}</p>
+                </CardContent>
+              </Card>
+            </button>
           </div>
 
           {/* Market Details */}
@@ -145,7 +140,7 @@ export default function MarketDetailPage({
 
         {/* Right — Trading Panel */}
         <div>
-          <TradingPanel marketId={marketId} question={market.question} />
+          <TradingPanel marketId={marketId} question={market.question} side={side} onSideChange={setSide} />
         </div>
       </div>
     </div>
