@@ -66,14 +66,34 @@ const main = async () => {
 
     // Parse command line arguments
     // Expected: marketId as first argument
-    const args = process.argv.slice(2);
-    console.log(`Received ${args.length} args:`, args);
+    // Use format: "market=0x..." or "0x..." (hex string)
+    const rawArgs = process.argv.slice(2);
+    console.log(`Received ${rawArgs.length} raw args:`, rawArgs);
 
-    if (args.length === 0) {
-      throw new Error('MISSING_MARKET_ID: Market ID required as first argument');
+    const argsString = rawArgs.join(' ').trim();
+    if (!argsString) {
+      throw new Error('MISSING_MARKET_ID: Market ID required. Use: --args "market=0x..."');
     }
 
-    const marketId = args[0];
+    // Parse key=value args
+    let marketId = null;
+    for (const arg of argsString.split(' ')) {
+      if (arg.startsWith('market=')) {
+        marketId = arg.substring(7); // Remove "market=" prefix
+        break;
+      }
+    }
+
+    // Fallback: use first arg if no market= prefix found
+    if (!marketId) {
+      marketId = argsString.split(' ')[0];
+    }
+
+    // Validate marketId format
+    if (!marketId || marketId.length === 0) {
+      throw new Error('INVALID_MARKET_ID: Market ID is empty');
+    }
+
     console.log(`Processing market: ${marketId}`);
 
     // Get sealed key from TEE secrets
