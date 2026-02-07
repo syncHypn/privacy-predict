@@ -275,7 +275,7 @@ export function BalanceDisplay({ address }: BalanceDisplayProps) {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
                 })}
-                <span className="ml-1 text-sm">USDC</span>
+                <span className="ml-1 text-sm">cUSDC</span>
               </p>
               {pnlPercent !== null && (
                 <p

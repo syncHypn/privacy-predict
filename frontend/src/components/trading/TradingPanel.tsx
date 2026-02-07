@@ -86,7 +86,7 @@ export function TradingPanel({ marketId, question, side, onSideChange }: Trading
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-sm font-medium text-muted-foreground">
-                Amount (USDC)
+                Amount (cUSDC)
               </label>
               {balance !== undefined && authenticated && (
                 <button
@@ -133,7 +133,7 @@ export function TradingPanel({ marketId, question, side, onSideChange }: Trading
               <div className="flex justify-between text-muted-foreground">
                 <span>Max payout</span>
                 <span className="text-foreground">
-                  ~{(parseFloat(amount) / 0.5).toFixed(2)} USDC
+                  ~{(parseFloat(amount) / 0.5).toFixed(2)} cUSDC
                 </span>
               </div>
             </div>
@@ -188,7 +188,7 @@ export function TradingPanel({ marketId, question, side, onSideChange }: Trading
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Amount</span>
-              <span className="text-foreground">{amount} USDC</span>
+              <span className="text-foreground">{amount} cUSDC</span>
             </div>
           </div>
           <DialogFooter>
