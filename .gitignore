@@ -1,28 +1,40 @@
 # Compiler files
+contracts/cache/
+contracts/out/
+
+# Broadcast logs
+contracts/broadcast/
+broadcast/
 cache/
 out/
 
-# Ignores development broadcast logs
-!/broadcast
-/broadcast/*/31337/
-/broadcast/**/dry-run/
-
-# Dotenv file
+# Dotenv files
 .env
+.env.*
+!.env.example
 
-# Node modules (if using npm dependencies)
+# Node modules
 node_modules/
 
 # Coverage
 lcov.info
 coverage/
 
-# IDE
+# IDE and editors
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
+
+# AI tools
+.claude/
+.cursor/
+.windsurf/
+.copilot/
+.aider/
+.continue/
+.codeium/
 
 # OS
 .DS_Store
@@ -32,12 +44,22 @@ Thumbs.db
 .gas-snapshot
 
 # Development and temporary files
-TEE_SETUP_CONTEXT.md
 mock/
 orchestrator/
-broadcast/
 
-# Temporary documentation
-docs/ARCHITECTURE.md
-docs/ENCRYPTION.md
-docs/IMPLEMENTATION_UPDATES.md
+# All markdown files except README.md, feedback.md, and SPEC
+*.md
+!README.md
+!feedback.md
+!docs/SPEC.md
+
+# Docs directory (except SPEC.md)
+docs/*
+!docs/SPEC.md
+
+# Scripts and credentials
+*.sh
+wallet.json
+
+# Misc
+*.pdf
