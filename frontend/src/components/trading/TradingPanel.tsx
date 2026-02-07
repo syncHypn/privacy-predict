@@ -44,7 +44,9 @@ export function TradingPanel({ marketId, question, side, onSideChange }: Trading
   function handleConfirm() {
     setShowConfirm(false);
     const outcomeIndex = side === "YES" ? 0 : 1;
-    submitOrder(marketId, "BUY", outcomeIndex, amount).catch(() => {});
+    // Convert human-readable USDC amount to smallest units (6 decimals)
+    const amountInSmallestUnits = Math.floor(parseFloat(amount) * 1_000_000).toString();
+    submitOrder(marketId, "BUY", outcomeIndex, amountInSmallestUnits).catch(() => {});
   }
 
   return (

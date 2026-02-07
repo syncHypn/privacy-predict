@@ -33,8 +33,8 @@ const CATEGORY_ICONS: Record<string, string> = {
 export function MarketCard({ market }: MarketCardProps) {
   const isExpired = new Date(market.resolutionTime).getTime() < Date.now();
 
-  const yesPct = Math.round(market.yesPrice / 100);
-  const noPct = Math.round(market.noPrice / 100);
+  const yesPct = market.yesPrice / 100;
+  const noPct = market.noPrice / 100;
 
   const outcomeCount = market.outcomes.length;
   const maxVisible = 3;
@@ -121,7 +121,7 @@ export function MarketCard({ market }: MarketCardProps) {
                       {multiplier}x
                     </span>
                     <span className="inline-flex items-center justify-center min-w-[52px] rounded-full border border-primary/50 px-3 py-1 text-sm font-medium text-primary">
-                      {pct}%
+                      {pct.toFixed(2)}%
                     </span>
                   </div>
                 </div>

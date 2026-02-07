@@ -1,17 +1,13 @@
 import { IExec, utils } from 'iexec';
-import JSZip from 'jszip';
-import { createPublicClient, createWalletClient, http } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
+import { createPublicClient, http } from 'viem';
 import { arbitrumSepolia } from 'viem/chains';
 import { ADDRESSES } from './contracts/addresses';
 import { MarketFactoryABI } from './contracts/abis/MarketFactory';
 import { OrderQueueABI } from './contracts/abis/OrderQueue';
-import { StateAnchorABI } from './contracts/abis/StateAnchor';
-import { insertPriceSnapshot } from './services/price.service';
 
 // ── Config ──
 
-const IAPP_ADDRESS = '0xd9735E83383E5aeDC236Fb9697793baBF34868bC';
+const IAPP_ADDRESS = '0x40b153D345C1590795741990AA826CB0D050acA5';
 const FLUSH_INTERVAL_MS = 60_000; // 1 minute
 const MIN_ORDERS_TO_FLUSH = 1;
 
@@ -149,14 +145,15 @@ async function triggerTEE(privateKey: string, marketId: string) {
   });
   const signedApporder = await iexec.order.signApporder(apporder);
 
-  // 2. Create & sign request order (NO callback — results go to IPFS)
+  // 2. Create & sign request order WITH callback — PoCo hub delivers result on-chain
   const requestorder = await iexec.order.createRequestorder({
     app: IAPP_ADDRESS,
     category: 0,
     tag: ['tee', 'scone'],
     workerpoolmaxprice: workerpoolPrice,
+    callback: ADDRESSES.CallbackReceiver,
     params: {
-      iexec_args: marketId,
+      iexec_args: `market=${marketId}`,
     },
   });
   const signedRequestorder = await iexec.order.signRequestorder(requestorder);
@@ -187,71 +184,6 @@ async function triggerTEE(privateKey: string, marketId: string) {
   });
 
   console.log(`[flush] Task ${taskid} completed: ${task.statusName}`);
-  if (task.statusName !== 'COMPLETED') return;
-
-  // 5. Fetch result ZIP from IPFS
-  console.log(`[flush] Fetching results from IPFS…`);
-  const resultBlob = await iexec.task.fetchResults(taskid);
-  const arrayBuffer = await (resultBlob as unknown as Response).arrayBuffer();
-  const zip = await JSZip.loadAsync(arrayBuffer);
-
-  const zipFiles = Object.keys(zip.files);
-  console.log(`[flush] ZIP contents: ${zipFiles.join(', ')}`);
-
-  // 6. Extract result.json → prices
-  const resultFile = zip.file('result.json');
-  if (!resultFile) {
-    console.error('[flush] result.json not found in ZIP');
-    return;
-  }
-
-  const resultText = await resultFile.async('text');
-  const resultData = JSON.parse(resultText);
-  console.log(`[flush] result.json:`, JSON.stringify(resultData, null, 2));
-
-  if (!resultData.success) {
-    console.error('[flush] TEE execution failed:', resultData.error);
-    return;
-  }
-
-  // 7. Store prices in DB
-  if (resultData.prices) {
-    const yesPrice = Math.round(resultData.prices.yes * 10000);
-    const noPrice = Math.round(resultData.prices.no * 10000);
-    await insertPriceSnapshot(marketId, yesPrice, noPrice);
-    console.log(`[flush] Price snapshot stored: YES=${yesPrice} NO=${noPrice}`);
-  }
-
-  // 8. Extract callback data and commit state root on-chain
-  const callbackFile = zip.file('callback-data.json');
-  if (callbackFile && resultData.stateRoot) {
-    const callbackText = await callbackFile.async('text');
-    const callbackData = JSON.parse(callbackText);
-    console.log(`[flush] Callback data: stateRoot=${resultData.stateRoot}, matchId=${callbackData.matchId}`);
-
-    try {
-      const account = privateKeyToAccount(privateKey as `0x${string}`);
-      const walletClient = createWalletClient({
-        account,
-        chain: arbitrumSepolia,
-        transport: http(),
-      });
-
-      const attestation = new TextEncoder().encode(callbackData.attestation || 'RELAYER_ATTESTATION');
-
-      const txHash = await walletClient.writeContract({
-        address: ADDRESSES.StateAnchor as `0x${string}`,
-        abi: StateAnchorABI,
-        functionName: 'commitRoot',
-        args: [
-          resultData.stateRoot as `0x${string}`,
-          (callbackData.matchId || `0x${Date.now().toString(16).padStart(64, '0')}`) as `0x${string}`,
-          `0x${Buffer.from(attestation).toString('hex')}` as `0x${string}`,
-        ],
-      });
-      console.log(`[flush] State root committed on-chain: ${txHash}`);
-    } catch (err) {
-      console.error('[flush] Failed to commit state root on-chain:', err);
-    }
-  }
+  // Done! The PoCo hub already called CallbackReceiver.receiveResult()
+  // which committed the state root, stored prices, and updated balances on-chain.
 }

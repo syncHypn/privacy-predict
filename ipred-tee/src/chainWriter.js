@@ -303,4 +303,40 @@ export function generateCallbackData({ users, encryptedBalances, stateRoot, matc
   };
 }
 
+/**
+ * Generates ABI-encoded callback data for iExec on-chain callback.
+ * This is set as `callback-data` in computed.json so the PoCo hub
+ * delivers it to CallbackReceiver.receiveResult() in one transaction.
+ *
+ * Schema: (bytes32 stateRoot, bytes32 matchId, bytes attestation,
+ *          bytes32 marketId, uint64 yesPrice, uint64 noPrice,
+ *          address[] users, bytes[] encryptedBalances)
+ *
+ * @param {Object} params
+ * @param {string[]} params.users - User addresses
+ * @param {string[]} params.encryptedBalances - JSON-stringified encrypted balance maps
+ * @param {string} params.stateRoot - Hex state root
+ * @param {string} params.matchId - Hex match/batch ID
+ * @param {string} params.marketId - Hex market ID
+ * @param {{ yes: number, no: number }} params.prices - Prices as floats 0-1
+ * @returns {string} ABI-encoded hex string
+ */
+export function generateABIEncodedCallback({ users, encryptedBalances, stateRoot, matchId, marketId, prices }) {
+  const attestation = `TEE_ATTESTATION:${matchId}:${Date.now()}`;
+  const attestationBytes = ethers.toUtf8Bytes(attestation);
+
+  // Scale prices from float (0-1) to uint64 (0-10000 basis points)
+  const yesPrice = Math.round((prices?.yes ?? 0.5) * 10000);
+  const noPrice = Math.round((prices?.no ?? 0.5) * 10000);
+
+  // Convert encrypted balance strings to bytes
+  const balanceBytes = encryptedBalances.map(b => ethers.toUtf8Bytes(b));
+
+  const coder = ethers.AbiCoder.defaultAbiCoder();
+  return coder.encode(
+    ['bytes32', 'bytes32', 'bytes', 'bytes32', 'uint64', 'uint64', 'address[]', 'bytes[]'],
+    [stateRoot, matchId, attestationBytes, marketId, yesPrice, noPrice, users, balanceBytes]
+  );
+}
+
 export default ChainWriter;

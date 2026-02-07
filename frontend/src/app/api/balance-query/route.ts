@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { IExec, utils } from 'iexec';
 import JSZip from 'jszip';
 
-const IAPP_ADDRESS = '0xd9735E83383E5aeDC236Fb9697793baBF34868bC';
+const IAPP_ADDRESS = '0x40b153D345C1590795741990AA826CB0D050acA5';
 
 export async function POST(req: NextRequest) {
   try {

@@ -1,4 +1,6 @@
 import { getDb } from "../db";
+import { parsePricesUpdated } from "./indexer-parser";
+import type { IndexerEvent } from "./indexer-parser";
 
 export interface PricePoint {
   timestamp: string;
@@ -17,18 +19,6 @@ const RANGE_INTERVALS: Record<TimeRange, string> = {
   ALL: "10 years",
 };
 
-export async function insertPriceSnapshot(
-  marketId: string,
-  yesPrice: number,
-  noPrice: number
-) {
-  const sql = getDb();
-  await sql`
-    INSERT INTO price_snapshots (market_id, timestamp, yes_price, no_price)
-    VALUES (${marketId}, now(), ${yesPrice}, ${noPrice})
-  `;
-}
-
 export async function getPriceHistory(
   marketId: string,
   range: TimeRange = "ALL"
@@ -36,17 +26,26 @@ export async function getPriceHistory(
   const sql = getDb();
   const interval = RANGE_INTERVALS[range] || RANGE_INTERVALS.ALL;
 
-  const rows = await sql`
-    SELECT timestamp, yes_price, no_price
-    FROM price_snapshots
-    WHERE market_id = ${marketId}
-      AND timestamp >= now() - ${interval}::interval
-    ORDER BY timestamp ASC
-  `;
+  // Read PricesUpdated events from Goldsky-indexed callback_receiver_events
+  let rows: IndexerEvent[] = [];
+  try {
+    rows = (await sql`
+      SELECT * FROM indexer.callback_receiver_events
+      WHERE event_signature LIKE '%PricesUpdated%'
+        AND block_timestamp >= now() - ${interval}::interval
+      ORDER BY block_timestamp ASC
+    `) as unknown as IndexerEvent[];
+  } catch {
+    // table may not exist yet before Goldsky indexes
+  }
 
-  return rows.map((r) => ({
-    timestamp: new Date(r.timestamp).toISOString(),
-    yesPrice: r.yes_price,
-    noPrice: r.no_price,
-  }));
+  return rows
+    .map(parsePricesUpdated)
+    .filter(Boolean)
+    .filter((e) => e!.marketId.toLowerCase() === marketId.toLowerCase())
+    .map((e) => ({
+      timestamp: new Date(e!.blockTimestamp).toISOString(),
+      yesPrice: e!.yesPrice,
+      noPrice: e!.noPrice,
+    }));
 }

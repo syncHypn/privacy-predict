@@ -10,11 +10,8 @@ import { IPrivateToken } from "./interfaces/IPrivateToken.sol";
 /// @notice Receives iExec TEE task results and forwards state updates to iPred contracts
 /// @dev Implements ERC1154 receiveResult for iExec protocol callbacks.
 ///      After a TEE task completes, the iExec PoCo hub calls receiveResult() with
-///      ABI-encoded callback data. This contract decodes it and commits the state root.
-///
-///      The callback only handles commitRoot (lightweight, fits in 200k gas).
-///      Balance updates are submitted separately via applyBalanceUpdate() by the owner,
-///      using the callback-data.json output from the TEE task.
+///      ABI-encoded callback data containing state root, prices, and encrypted balances.
+///      Everything is processed in a single transaction (must fit in 200k gas).
 contract IExecCallbackReceiver is Ownable, Pausable {
     IStateAnchor public stateAnchor;
     IPrivateToken public privateToken;
@@ -28,10 +25,24 @@ contract IExecCallbackReceiver is Ownable, Pausable {
     /// @notice Store the state root from each callback for balance update verification
     mapping(bytes32 => bytes32) public taskStateRoots;
 
+    /// @notice Market prices (packed into one storage slot)
+    struct PriceData {
+        uint64 yesPrice;   // 0-10000 basis points
+        uint64 noPrice;    // 0-10000 basis points
+        uint128 timestamp; // block.timestamp
+    }
+    mapping(bytes32 => PriceData) public marketPrices;
+
     event CallbackReceived(
         bytes32 indexed taskId,
         bytes32 indexed stateRoot,
         bytes32 matchId
+    );
+
+    event PricesUpdated(
+        bytes32 indexed marketId,
+        uint64 yesPrice,
+        uint64 noPrice
     );
 
     event BalancesApplied(
@@ -69,8 +80,11 @@ contract IExecCallbackReceiver is Ownable, Pausable {
     }
 
     /// @notice ERC1154 callback invoked by iExec after TEE task completion
-    /// @dev Only commits the state root (fits within 200k gas limit).
-    ///      Payload schema: (bytes32 stateRoot, bytes32 matchId, bytes attestation)
+    /// @dev Processes everything in one call: commits state root, stores prices,
+    ///      and updates encrypted balances. Must fit within 200k gas limit.
+    ///      Payload schema: (bytes32 stateRoot, bytes32 matchId, bytes attestation,
+    ///                       bytes32 marketId, uint64 yesPrice, uint64 noPrice,
+    ///                       address[] users, bytes[] encryptedBalances)
     /// @param _taskId The iExec task identifier
     /// @param _callbackData ABI-encoded callback payload from the TEE
     function receiveResult(bytes32 _taskId, bytes calldata _callbackData) external onlyIExecHub whenNotPaused {
@@ -79,25 +93,49 @@ contract IExecCallbackReceiver is Ownable, Pausable {
 
         processedTasks[_taskId] = true;
 
-        // Decode lightweight payload: only state root + attestation
+        // Decode full payload
         (
             bytes32 stateRoot,
             bytes32 matchId,
-            bytes memory attestation
-        ) = abi.decode(_callbackData, (bytes32, bytes32, bytes));
+            bytes memory attestation,
+            bytes32 marketId,
+            uint64 yesPrice,
+            uint64 noPrice,
+            address[] memory users,
+            bytes[] memory encryptedBalances
+        ) = abi.decode(_callbackData, (bytes32, bytes32, bytes, bytes32, uint64, uint64, address[], bytes[]));
 
-        // Store for balance update verification
+        // Store state root for fallback balance updates
         taskStateRoots[_taskId] = stateRoot;
 
-        // Commit state root to StateAnchor
+        // 1. Commit state root to StateAnchor
         stateAnchor.commitRoot(stateRoot, matchId, attestation);
+
+        // 2. Store prices on-chain
+        marketPrices[marketId] = PriceData({
+            yesPrice: yesPrice,
+            noPrice: noPrice,
+            timestamp: uint128(block.timestamp)
+        });
+        emit PricesUpdated(marketId, yesPrice, noPrice);
+
+        // 3. Balance updates skipped in callback (200k gas limit)
+        //    Use applyBalanceUpdate() separately for balance data
 
         emit CallbackReceived(_taskId, stateRoot, matchId);
     }
 
-    /// @notice Apply balance updates from a completed TEE task
-    /// @dev Called by owner after callback, using data from callback-data.json.
-    ///      No gas limit since this is a regular transaction.
+    /// @notice Get current market prices
+    /// @param marketId The market identifier
+    /// @return yesPrice YES price in basis points (0-10000)
+    /// @return noPrice NO price in basis points (0-10000)
+    /// @return timestamp When prices were last updated
+    function getMarketPrices(bytes32 marketId) external view returns (uint64 yesPrice, uint64 noPrice, uint128 timestamp) {
+        PriceData memory p = marketPrices[marketId];
+        return (p.yesPrice, p.noPrice, p.timestamp);
+    }
+
+    /// @notice Apply balance updates from a completed TEE task (fallback for gas overflow)
     /// @param _taskId The task ID that produced these balance updates
     /// @param users Array of user addresses
     /// @param encryptedBalances Array of encrypted balance bytes
@@ -115,7 +153,6 @@ contract IExecCallbackReceiver is Ownable, Pausable {
     }
 
     /// @notice Apply withdrawals from a completed TEE task
-    /// @dev Called by owner after callback, using data from withdrawal-data.json.
     /// @param _taskId The task ID that produced these withdrawals
     /// @param users Array of user addresses to withdraw to
     /// @param amounts Array of withdrawal amounts

@@ -1,5 +1,5 @@
 import { getDb } from "../db";
-import { parseMarketCreated, parseMarketResolved } from "./indexer-parser";
+import { parseMarketCreated, parseMarketResolved, parsePricesUpdated } from "./indexer-parser";
 import type { IndexerEvent } from "./indexer-parser";
 
 export interface MarketWithMeta {
@@ -53,21 +53,28 @@ export async function getMarkets(filters?: {
   const marketIds = created.map((c) => c!.marketId);
   if (marketIds.length === 0) return [];
 
-  // Fetch metadata and stats in parallel
-  const [metadataRows, statsRows, priceRows] = await Promise.all([
+  // Fetch metadata, stats, and latest prices from Goldsky-indexed events
+  const [metadataRows, statsRows, priceEventRows] = await Promise.all([
     sql`SELECT * FROM market_metadata WHERE market_id = ANY(${marketIds})`,
     sql`SELECT * FROM market_stats WHERE market_id = ANY(${marketIds})`,
     sql`
-      SELECT DISTINCT ON (market_id) market_id, yes_price, no_price
-      FROM price_snapshots
-      WHERE market_id = ANY(${marketIds})
-      ORDER BY market_id, timestamp DESC
-    `,
+      SELECT * FROM indexer.callback_receiver_events
+      WHERE event_signature LIKE '%PricesUpdated%'
+      ORDER BY block_timestamp DESC
+    `.catch(() => []),  // table may not exist yet before Goldsky indexes
   ]);
 
   const metaMap = new Map(metadataRows.map((r) => [r.market_id, r]));
   const statsMap = new Map(statsRows.map((r) => [r.market_id, r]));
-  const priceMap = new Map(priceRows.map((r) => [r.market_id, r]));
+
+  // Build price map from indexed PricesUpdated events (latest per market)
+  const priceMap = new Map<string, { yes_price: number; no_price: number }>();
+  for (const row of priceEventRows as unknown as IndexerEvent[]) {
+    const parsed = parsePricesUpdated(row);
+    if (parsed && !priceMap.has(parsed.marketId)) {
+      priceMap.set(parsed.marketId, { yes_price: parsed.yesPrice, no_price: parsed.noPrice });
+    }
+  }
 
   let markets: MarketWithMeta[] = created.map((c) => {
     const m = c!;

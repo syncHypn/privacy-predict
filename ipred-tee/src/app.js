@@ -25,7 +25,7 @@ import { IExecDataProtectorDeserializer } from '@iexec/dataprotector-deserialize
 import { hexToBytes, generateSealedKey, encryptState, decryptBalance, encryptForUser } from './encryption.js';
 import { StateManager } from './stateManager.js';
 import { ConfidentialAMM } from './amm.js';
-import { generateCallbackData } from './chainWriter.js';
+import { generateCallbackData, generateABIEncodedCallback } from './chainWriter.js';
 import { ChainReader } from './chainReader.js';
 
 // ============================================================
@@ -118,18 +118,28 @@ const main = async () => {
     // Initialize AMM
     const amm = new ConfidentialAMM(stateManager);
 
-    // Load previous state or initialize
-    // Input file convention: #3=public-state.json, #4=private-state.enc
-    await loadOrInitializeState(stateManager, sealedKey, marketId);
+    // Initialize chain reader for on-chain data
+    const chainReader = new ChainReader({
+      rpcUrl: CONFIG.rpcUrl,
+      orderQueueAddress: CONFIG.contracts.orderQueue,
+      marketFactoryAddress: CONFIG.contracts.marketFactory,
+      privateTokenAddress: CONFIG.contracts.privateToken,
+      teeSecretKey: sealedKey,
+    });
 
-    // Process deposits from input files (#1=deposits.json)
-    await processDeposits(stateManager);
+    // Always start fresh — replay full history from chain (no persistence needed)
+    console.log(`Initializing new pool for market ${marketId}`);
+    stateManager.initializePool(marketId, CONFIG.defaultInitialLiquidity);
+    console.log(`Pool initialized with ${CONFIG.defaultInitialLiquidity} liquidity`);
 
-    // Process withdrawals from input files (#5=withdrawals.json)
+    // Replay ALL deposits from chain
+    await replayDepositsFromChain(stateManager, chainReader);
+
+    // Replay ALL orders from chain (chronological)
+    const ordersProcessed = await replayOrdersFromChain(amm, stateManager, chainReader, marketId);
+
+    // Process withdrawals from input files (optional)
     const { withdrawalsProcessed, validatedWithdrawals } = await processWithdrawals(stateManager, marketId);
-
-    // Process pending orders from input files (#2=orders.json)
-    const ordersProcessed = await processOrders(amm, stateManager, marketId);
 
     // Update state version
     stateManager.incrementVersion();
@@ -190,25 +200,26 @@ const main = async () => {
       withdrawals: validatedWithdrawals,
     });
 
-    // Write callback data (legacy JSON format for manual relayer)
+    // Write callback data (JSON format for debugging / fallback relayer)
     await fs.writeFile(
       path.join(IEXEC_OUT, 'callback-data.json'),
       JSON.stringify(callbackData, null, 2)
     );
     console.log('Callback data written');
 
-    // ABI-encode lightweight callback payload for iExec on-chain callback
-    // Only state root + attestation (fits within 200k gas limit)
-    // Balance updates are applied separately via applyBalanceUpdate()
-    // Schema: (bytes32 stateRoot, bytes32 matchId, bytes attestation)
-    const abiCoder = new ethers.AbiCoder();
-    const attestationBytes = ethers.toUtf8Bytes(callbackData.attestation);
+    // Get prices for on-chain storage
+    const prices = stateManager.getIndicativePrices(marketId);
 
-    const abiEncodedCallback = abiCoder.encode(
-      ['bytes32', 'bytes32', 'bytes'],
-      [stateRoot, matchId, attestationBytes]
-    );
-    console.log(`ABI-encoded callback: ${abiEncodedCallback.length} bytes`);
+    // ABI-encode full callback payload for iExec on-chain delivery
+    const abiEncodedCallback = generateABIEncodedCallback({
+      users,
+      encryptedBalances,
+      stateRoot,
+      matchId,
+      marketId,
+      prices,
+    });
+    console.log(`ABI-encoded callback: ${abiEncodedCallback.length} chars`);
 
     // Build result summary
     result = {
@@ -219,7 +230,7 @@ const main = async () => {
       ordersProcessed,
       withdrawalsProcessed,
       usersUpdated: users.length,
-      prices: stateManager.getIndicativePrices(marketId),
+      prices,
       timestamp: Date.now(),
     };
 
@@ -235,7 +246,7 @@ const main = async () => {
     console.log(`Prices:`, result.prices);
 
     // Build computed.json for iExec (REQUIRED)
-    // callback-data: ABI-encoded bytes sent to CallbackReceiver.receiveResult()
+    // callback-data: ABI-encoded payload delivered to CallbackReceiver.receiveResult()
     computedJsonObj = {
       'deterministic-output-path': path.join(IEXEC_OUT, 'result.json'),
       'callback-data': abiEncodedCallback,
@@ -395,70 +406,87 @@ async function getSealedKey() {
 }
 
 /**
- * Loads state from input files or initializes a new pool
+ * Replays ALL deposit events from PrivateToken contract (full history).
+ * No dedup needed — we always start from a fresh state.
  * @param {StateManager} stateManager
- * @param {Uint8Array} sealedKey
- * @param {string} marketId
+ * @param {ChainReader} chainReader
  */
-async function loadOrInitializeState(stateManager, sealedKey, marketId) {
-  // Try to load public state (input file #3 if provided)
-  const publicStateContent = await readInputFile('public-state.json', 3);
-  if (publicStateContent) {
-    try {
-      const publicState = JSON.parse(publicStateContent);
-      stateManager.importPublicState(publicState);
-      console.log('Loaded public state from input');
-    } catch (e) {
-      console.log('Failed to parse public state:', e.message);
-    }
-  }
+async function replayDepositsFromChain(stateManager, chainReader) {
+  try {
+    // Scan from PrivateToken deployment block (safe starting point on Arb Sepolia)
+    const fromBlock = 230_000_000;
+    const currentBlock = await chainReader.getCurrentBlock();
 
-  // Try to load private state (input file #4 if provided)
-  const privateStateContent = await readInputFile('private-state.enc', 4);
-  if (privateStateContent) {
-    try {
-      const { decryptState } = await import('./encryption.js');
-      const privateState = decryptState(privateStateContent, sealedKey);
-      stateManager.importPrivateState(privateState);
-      console.log('Loaded private state from input');
-    } catch (e) {
-      console.log('Failed to decrypt private state:', e.message);
-    }
-  }
+    console.log(`[replay] Reading ALL Deposit events from block ${fromBlock} to ${currentBlock}`);
+    const deposits = await chainReader.getDeposits(fromBlock, currentBlock);
+    console.log(`[replay] Found ${deposits.length} deposit events`);
 
-  // Check if pool exists, otherwise initialize
-  if (!stateManager.getPool(marketId)) {
-    console.log(`Initializing new pool for market ${marketId}`);
-    stateManager.initializePool(marketId, CONFIG.defaultInitialLiquidity);
-    console.log(`Pool initialized with ${CONFIG.defaultInitialLiquidity} liquidity`);
-  } else {
-    console.log('State loaded successfully');
+    for (const deposit of deposits) {
+      stateManager.addBalance(deposit.user, 'cUSDC', deposit.amount);
+      console.log(`[replay] Deposit: ${deposit.user} +${deposit.amount} cUSDC`);
+    }
+  } catch (e) {
+    console.error('[replay] Failed to read deposits from chain:', e.message);
   }
 }
 
 /**
- * Processes deposit entries from input files
+ * Replays ALL orders from OrderQueue for a market (full history).
+ * Orders are sorted by timestamp and replayed chronologically.
+ * Undecryptable orders (old key) are skipped.
+ * @param {ConfidentialAMM} amm
  * @param {StateManager} stateManager
+ * @param {ChainReader} chainReader
+ * @param {string} marketId
+ * @returns {Promise<number>}
  */
-async function processDeposits(stateManager) {
-  const depositsContent = await readInputFile('deposits.json', 1);
-  if (!depositsContent) {
-    console.log('No deposits file found');
-    return;
-  }
+async function replayOrdersFromChain(amm, stateManager, chainReader, marketId) {
+  let ordersProcessed = 0;
 
   try {
-    const deposits = JSON.parse(depositsContent);
-    console.log(`Processing ${deposits.length} deposits`);
+    console.log(`[replay] Reading ALL orders for market ${marketId} from OrderQueue`);
+    const rawOrders = await chainReader.getMarketOrders(marketId);
+    console.log(`[replay] Found ${rawOrders.length} orders on-chain`);
 
-    for (const deposit of deposits) {
-      stateManager.addBalance(deposit.user, 'cUSDC', BigInt(deposit.amount));
-      console.log(`Deposited ${deposit.amount} cUSDC for ${deposit.user}`);
+    // Sort by timestamp for deterministic replay
+    rawOrders.sort((a, b) => a.timestamp - b.timestamp);
+
+    for (const rawOrder of rawOrders) {
+      try {
+        const order = chainReader.decryptOrderPayload(rawOrder);
+        const amount = BigInt(order.amount);
+
+        if (order.side === 'BUY') {
+          if (order.outcomeIndex === 0) {
+            const result = amm.buyYes(marketId, order.user, amount);
+            console.log(`[replay] BUY YES: ${order.user} spent ${amount} cUSDC, got ${result.amountOut} cYES`);
+          } else {
+            const result = amm.buyNo(marketId, order.user, amount);
+            console.log(`[replay] BUY NO: ${order.user} spent ${amount} cUSDC, got ${result.amountOut} cNO`);
+          }
+        } else {
+          if (order.outcomeIndex === 0) {
+            const result = amm.sellYes(marketId, order.user, amount);
+            console.log(`[replay] SELL YES: ${order.user} sold ${amount} cYES, got ${result.amountOut} cUSDC`);
+          } else {
+            const result = amm.sellNo(marketId, order.user, amount);
+            console.log(`[replay] SELL NO: ${order.user} sold ${amount} cNO, got ${result.amountOut} cUSDC`);
+          }
+        }
+
+        ordersProcessed++;
+      } catch (e) {
+        console.error(`[replay] Skipping order ${rawOrder.orderId}: ${e.message}`);
+      }
     }
   } catch (e) {
-    console.error('Failed to process deposits:', e.message);
+    console.error('[replay] Failed to read orders from chain:', e.message);
   }
+
+  console.log(`[replay] Processed ${ordersProcessed} orders`);
+  return ordersProcessed;
 }
+
 
 /**
  * Processes withdrawal requests from input files
@@ -530,67 +558,6 @@ async function processWithdrawals(stateManager, marketId) {
   return { withdrawalsProcessed, validatedWithdrawals };
 }
 
-/**
- * Processes order entries from input files
- * @param {ConfidentialAMM} amm
- * @param {StateManager} stateManager
- * @param {string} marketId
- * @returns {Promise<number>}
- */
-async function processOrders(amm, stateManager, marketId) {
-  const ordersContent = await readInputFile('orders.json', 2);
-  if (!ordersContent) {
-    console.log('No orders file found');
-    return 0;
-  }
-
-  let ordersProcessed = 0;
-
-  try {
-    const orders = JSON.parse(ordersContent);
-    console.log(`Processing ${orders.length} orders`);
-
-    for (const order of orders) {
-      // Skip already processed orders
-      if (stateManager.isOrderProcessed(order.orderId)) {
-        console.log(`Skipping already processed order ${order.orderId}`);
-        continue;
-      }
-
-      try {
-        const amount = BigInt(order.amount);
-
-        if (order.side === 'BUY') {
-          if (order.outcomeIndex === 0) {
-            const result = amm.buyYes(marketId, order.user, amount);
-            console.log(`BUY YES: ${order.user} spent ${amount} cUSDC, got ${result.amountOut} cYES`);
-          } else {
-            const result = amm.buyNo(marketId, order.user, amount);
-            console.log(`BUY NO: ${order.user} spent ${amount} cUSDC, got ${result.amountOut} cNO`);
-          }
-        } else {
-          if (order.outcomeIndex === 0) {
-            const result = amm.sellYes(marketId, order.user, amount);
-            console.log(`SELL YES: ${order.user} sold ${amount} cYES, got ${result.amountOut} cUSDC`);
-          } else {
-            const result = amm.sellNo(marketId, order.user, amount);
-            console.log(`SELL NO: ${order.user} sold ${amount} cNO, got ${result.amountOut} cUSDC`);
-          }
-        }
-
-        stateManager.markOrderProcessed(order.orderId);
-        ordersProcessed++;
-
-      } catch (e) {
-        console.error(`Failed to process order ${order.orderId}: ${e.message}`);
-      }
-    }
-  } catch (e) {
-    console.error('Failed to parse orders:', e.message);
-  }
-
-  return ordersProcessed;
-}
 
 // ============================================================
 // Balance Query Handler

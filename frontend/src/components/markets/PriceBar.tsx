@@ -6,14 +6,14 @@ interface PriceBarProps {
 }
 
 export function PriceBar({ yesPrice, noPrice }: PriceBarProps) {
-  const yesPct = Math.round(yesPrice * 100);
-  const noPct = Math.round(noPrice * 100);
+  const yesPct = yesPrice * 100;
+  const noPct = noPrice * 100;
 
   return (
     <div className="space-y-2">
       <div className="flex justify-between text-xs font-medium">
-        <span className="text-[var(--color-yes)]">Yes {yesPct}%</span>
-        <span className="text-[var(--color-no)]">No {noPct}%</span>
+        <span className="text-[var(--color-yes)]">Yes {yesPct.toFixed(2)}%</span>
+        <span className="text-[var(--color-no)]">No {noPct.toFixed(2)}%</span>
       </div>
       <div className="flex h-2 overflow-hidden rounded-full bg-secondary">
         <div

@@ -27,8 +27,8 @@ const MARKET_FACTORY_ABI = [
 const PRIVATE_TOKEN_ABI = [
   'function getEncryptedBalance(address user) external view returns (bytes)',
   'function totalDeposited() external view returns (uint256)',
-  'event Deposit(address indexed user, uint256 amount, bytes32 commitment)',
-  'event WithdrawalRequested(address indexed user, bytes32 commitmentHash)',
+  'event Deposit(address indexed user, uint256 amount, bytes32 indexed commitment)',
+  'event WithdrawalRequested(address indexed user, bytes32 indexed commitmentHash)',
 ];
 
 /**

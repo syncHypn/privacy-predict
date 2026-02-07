@@ -188,3 +188,25 @@ export function parseStateUpdated(row: IndexerEvent): StateUpdatedEvent | null {
     transactionHash: ensureHex(row.transaction_hash),
   };
 }
+
+// ── CallbackReceiver events ──
+
+export interface PricesUpdatedEvent {
+  marketId: string;
+  yesPrice: number;
+  noPrice: number;
+  blockTimestamp: string;
+  transactionHash: string;
+}
+
+export function parsePricesUpdated(row: IndexerEvent): PricesUpdatedEvent | null {
+  if (!row.event_signature?.includes("PricesUpdated")) return null;
+  const p = row.event_params;
+  return {
+    marketId: ensureHex(p[0]),
+    yesPrice: Number(p[1]),
+    noPrice: Number(p[2]),
+    blockTimestamp: row.block_timestamp,
+    transactionHash: ensureHex(row.transaction_hash),
+  };
+}

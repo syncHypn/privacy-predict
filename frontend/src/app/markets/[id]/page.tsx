@@ -55,8 +55,8 @@ export default function MarketDetailPage({
   }
 
   const isExpired = new Date(market.resolutionTime).getTime() < Date.now();
-  const yesPct = Math.round(market.yesPrice / 100);
-  const noPct = Math.round(market.noPrice / 100);
+  const yesPct = market.yesPrice / 100;
+  const noPct = market.noPrice / 100;
 
   return (
     <div className="space-y-6">
@@ -101,7 +101,7 @@ export default function MarketDetailPage({
             <button onClick={() => setSide("YES")} className="text-left">
               <Card className={`border-border bg-card cursor-pointer transition-all hover:shadow-[0_0_16px_rgba(91,140,90,0.25)] ${side === "YES" ? "ring-2 ring-[var(--color-yes)]/50 shadow-[0_0_12px_rgba(91,140,90,0.2)]" : ""}`}>
                 <CardContent className="py-4 text-center">
-                  <p className="text-3xl font-bold text-[var(--color-yes)]">{yesPct}%</p>
+                  <p className="text-3xl font-bold text-[var(--color-yes)]">{yesPct.toFixed(2)}%</p>
                   <p className="text-sm text-muted-foreground">{market.outcomes[0] || "Yes"}</p>
                 </CardContent>
               </Card>
@@ -109,7 +109,7 @@ export default function MarketDetailPage({
             <button onClick={() => setSide("NO")} className="text-left">
               <Card className={`border-border bg-card cursor-pointer transition-all hover:shadow-[0_0_16px_rgba(184,112,112,0.25)] ${side === "NO" ? "ring-2 ring-[var(--color-no)]/50 shadow-[0_0_12px_rgba(184,112,112,0.2)]" : ""}`}>
                 <CardContent className="py-4 text-center">
-                  <p className="text-3xl font-bold text-[var(--color-no)]">{noPct}%</p>
+                  <p className="text-3xl font-bold text-[var(--color-no)]">{noPct.toFixed(2)}%</p>
                   <p className="text-sm text-muted-foreground">{market.outcomes[1] || "No"}</p>
                 </CardContent>
               </Card>

@@ -7,7 +7,7 @@ sources:
     dataset_name: arbitrum_sepolia.raw_logs
     version: 1.0.0
     start_at: latest
-    filter: address = '0x6d46708ed27814028e20d93ef4e9971935b95061' OR address = '0x1e6e8480b232ee254aa6de85b48f9c9db2bc431d' OR address = '0x0a64514c7f71b64430d8ae2706ea029e211a4aa0' OR address = '0xb9410cc8ca7008de2e1e1db109aa44ee4638093c'
+    filter: address = '0x6d46708ed27814028e20d93ef4e9971935b95061' OR address = '0x1e6e8480b232ee254aa6de85b48f9c9db2bc431d' OR address = '0x0a64514c7f71b64430d8ae2706ea029e211a4aa0' OR address = '0xb9410cc8ca7008de2e1e1db109aa44ee4638093c' OR address = '0x669f795ab00aae89a22abb5bbcb366fb65b3ab5e'
 
 transforms:
   # ── MarketFactory: decode ──
@@ -138,6 +138,38 @@ transforms:
       FROM state_anchor_decoded
       WHERE decoded IS NOT NULL
 
+  # ── CallbackReceiver: decode ──
+  callback_receiver_decoded:
+    primary_key: id
+    sql: |
+      SELECT
+        `id`,
+        _gs_log_decode(
+          '[{"anonymous":false,"type":"event","name":"PricesUpdated","inputs":[{"name":"marketId","type":"bytes32","indexed":true},{"name":"yesPrice","type":"uint64","indexed":false},{"name":"noPrice","type":"uint64","indexed":false}]},{"anonymous":false,"type":"event","name":"CallbackReceived","inputs":[{"name":"taskId","type":"bytes32","indexed":true},{"name":"stateRoot","type":"bytes32","indexed":true},{"name":"matchId","type":"bytes32","indexed":false}]}]',
+          `topics`,
+          `data`
+        ) AS `decoded`,
+        block_number,
+        block_timestamp,
+        transaction_hash,
+        log_index
+      FROM arb_sepolia_logs
+      WHERE address = '0x669f795ab00aae89a22abb5bbcb366fb65b3ab5e'
+
+  callback_receiver_events:
+    primary_key: id
+    sql: |
+      SELECT
+        `id`,
+        decoded.event_params AS `event_params`,
+        decoded.event_signature AS `event_signature`,
+        block_number,
+        block_timestamp,
+        transaction_hash,
+        log_index
+      FROM callback_receiver_decoded
+      WHERE decoded IS NOT NULL
+
 sinks:
   market_factory_pg:
     type: postgres
@@ -166,3 +198,10 @@ sinks:
     schema: indexer
     secret_name: IPRED_PG
     from: state_anchor_events
+
+  callback_receiver_pg:
+    type: postgres
+    table: callback_receiver_events
+    schema: indexer
+    secret_name: IPRED_PG
+    from: callback_receiver_events
